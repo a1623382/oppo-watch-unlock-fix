@@ -60,8 +60,12 @@
   - **com.heytap.htms** (系统完整性服务)
   - **com.heytap.health** (欢太健康)
 
-### 4. 恢复TEESimulator
-如果之前删除了TEESimulator模块，需要恢复。
+### 4. 强制停止 com.heytap.htms（关键步骤！）
+**必须执行此步骤**，否则模块无法hook到sysintegrity进程：
+1. 打开 LSPosed → 模块 → OPPO Watch解锁修复
+2. 点击作用域中的 `com.heytap.htms`
+3. 在应用信息中点击「强制停止」
+4. 或者：设置 → 应用管理 → 搜索「欢太服务」→ 强制停止
 
 ### 5. 重启手机
 重启手机使hook生效。
@@ -75,8 +79,9 @@
 
 1. **需要LSPosed/EdXposed框架**
 2. **需要KernelSU root**
-3. **如果仍然失败**，可能需要：
-   - 尝试不同的hook组合
+3. **升级APK后必须重新强制停止 `com.heytap.htms`**，否则新的hook代码不会加载到sysintegrity进程
+4. **如果仍然失败**，可能需要：
+   - 确认已强制停止 `com.heytap.htms`
    - 检查KernelSU的Zygisk设置
    - 尝试Shamiko
 
