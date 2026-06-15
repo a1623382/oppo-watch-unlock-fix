@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OPPO Watch解锁修复</string>
+    <string name="module_description">绕过欢太健康的root检测，修复OPPO Watch自动解锁失败</string>
+    <string name="module_status_active">模块已激活</string>
+    <string name="module_status_inactive">模块未激活</string>
+    <string name="module_scope_info">请在LSPosed中将此模块作用域设置为：欢太健康 (com.heytap.health)</string>
+    <string name="module_scope_required">需要：LSPosed (EdXposed)</string>
+    <string name="module_scope_target">作用域：com.heytap.health</string>
+    <string name="hook_status">Hook状态</string>
+    <string name="hook_active">正在绕过root检测</string>
+    <string name="instructions_title">使用说明</string>
+    <string name="instructions_step1">1. 在LSPosed管理器中启用此模块</string>
+    <string name="instructions_step2">2. 将作用域设置为"欢太健康"</string>
+    <string name="instructions_step3">3. 强制停止欢太健康App</string>
+    <string name="instructions_step4">4. 重新打开欢太健康App</string>
+    <string name="instructions_step5">5. 尝试使用手表解锁手机功能</string>
+    <string name="troubleshooting">如果仍然失败：</string>
+    <string name="troubleshooting_step1">- 在KernelSU中关闭DenyList中对欢太健康的隐藏</string>
+    <string name="troubleshooting_step2">- 确保Shamiko已禁用或正确配置</string>
+    <string name="troubleshooting_step3">- 重启手机后再试</string>
+</resources>

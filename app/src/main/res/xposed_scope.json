@@ -1,0 +1,10 @@
+{
+  "scope": [
+    "com.oplus.linker",
+    "com.heytap.htms",
+    "com.heytap.health"
+  ],
+  "versions": [
+    "1.0"
+  ]
+}

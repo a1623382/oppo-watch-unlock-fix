@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="xposed_scope">com.oplus.linker</string>
+    <string name="xposed_scope2">com.heytap.htms</string>
+    <string name="xposed_scope3">com.heytap.health</string>
+</resources>
