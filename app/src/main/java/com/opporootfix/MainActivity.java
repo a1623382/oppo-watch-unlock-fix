@@ -140,7 +140,7 @@ public class MainActivity extends Activity {
     private void addSpacer(LinearLayout layout, int dp) {
         View spacer = new View(this);
         spacer.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp * getResources().getDisplayMetrics().density));
+                LinearLayout.LayoutParams.MATCH_PARENT, (int)(dp * getResources().getDisplayMetrics().density)));
         layout.addView(spacer);
     }
 
