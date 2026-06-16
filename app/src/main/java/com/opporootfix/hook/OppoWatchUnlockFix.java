@@ -136,6 +136,7 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
     private void hookKnownLinkerClasses(XC_LoadPackage.LoadPackageParam lpparam) {
         int count = 0;
         String[] prefixes = {
+            "com.oplus.linker.unlock.connect",
             "com.oplus.linker.unlock",
             "com.oplus.linker.crypto",
             "com.oplus.linker.integrity",
@@ -159,10 +160,67 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
                     Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
                     hookSpecificMethods(cl, cn);
                     count++;
+                    XposedBridge.log(TAG + ": Found and hooked " + cn);
                 } catch (Throwable ignored) {}
             }
         }
+
+        hookConnectionSocketDirect(lpparam);
         XposedBridge.log(TAG + ": Known classes hooked: " + count);
+    }
+
+    private void hookConnectionSocketDirect(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            String cn = "com.oplus.linker.unlock.connect.ConnectionSocket";
+            Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
+            XposedBridge.log(TAG + ": [DIRECT] Found ConnectionSocket, hooking ALL methods");
+
+            for (Method m : cl.getDeclaredMethods()) {
+                try {
+                    final String sig = cn + "." + m.getName();
+                    XposedBridge.hookMethod(m, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                            StringBuilder args = new StringBuilder();
+                            for (Object arg : p.args) {
+                                if (arg == null) {
+                                    args.append("null");
+                                } else if (arg instanceof byte[]) {
+                                    byte[] data = (byte[]) arg;
+                                    args.append("byte[").append(data.length).append("]");
+                                    logRelevantBytes(data, sig);
+                                } else if (arg instanceof String) {
+                                    String s = (String) arg;
+                                    args.append("\"").append(s.substring(0, Math.min(100, s.length()))).append("\"");
+                                } else {
+                                    args.append(arg.getClass().getSimpleName()).append("@").append(Integer.toHexString(arg.hashCode()));
+                                }
+                                args.append(", ");
+                            }
+                            XposedBridge.log(TAG + ": [>>] " + sig + "(" + args + ")");
+                        }
+
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                            Throwable t = p.getThrowable();
+                            if (t != null) {
+                                XposedBridge.log(TAG + ": [THREW] " + sig + ": " + t);
+                                p.setThrowable(null);
+                            }
+                            Object r = p.getResult();
+                            if (r != null) {
+                                XposedBridge.log(TAG + ": [<<] " + sig + " = " + r.getClass().getSimpleName() +
+                                    "(" + r.toString().substring(0, Math.min(100, r.toString().length())) + ")");
+                            }
+                        }
+                    });
+                } catch (Throwable t) {
+                    XposedBridge.log(TAG + ": [DIRECT] Failed to hook " + sig + ": " + t);
+                }
+            }
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": [DIRECT] ConnectionSocket not found: " + t);
+        }
     }
 
     private void hookSpecificMethods(Class<?> clazz, String className) {
