@@ -27,9 +27,54 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
     }
 
     private void hookLinker(XC_LoadPackage.LoadPackageParam lpparam) {
-        XposedBridge.log(TAG + ": === LINKER v1.6.0 ===");
+        XposedBridge.log(TAG + ": === LINKER v1.7.0 ===");
         hookCipherObserve(lpparam);
         hookSendSecureData(lpparam);
+        hookProcessLockEventResponse(lpparam);
+    }
+
+    private void hookProcessLockEventResponse(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            String cn = "com.oplus.linker.unlock.connect.ConnectionSocket";
+            Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
+
+            for (Method m : cl.getDeclaredMethods()) {
+                String name = m.getName();
+                if (!name.contains("processLockEvent")) continue;
+
+                Class<?>[] params = m.getParameterTypes();
+                boolean hasByteArray = false;
+                int byteIdx = -1;
+                for (int i = 0; i < params.length; i++) {
+                    if (params[i] == byte[].class) { hasByteArray = true; byteIdx = i; }
+                }
+                if (!hasByteArray) continue;
+
+                final String sig = cn + "." + name;
+                final int fByteIdx = byteIdx;
+
+                XposedBridge.hookMethod(m, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                        if (fByteIdx >= 0 && p.args[fByteIdx] instanceof byte[]) {
+                            byte[] data = (byte[]) p.args[fByteIdx];
+                            XposedBridge.log(TAG + ": [RESP] " + sig + " before: " + bytesToHex(data));
+                        }
+                    }
+
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                        if (fByteIdx >= 0 && p.args[fByteIdx] instanceof byte[]) {
+                            byte[] data = (byte[]) p.args[fByteIdx];
+                            XposedBridge.log(TAG + ": [RESP] " + sig + " after: " + bytesToHex(data));
+                        }
+                    }
+                });
+                XposedBridge.log(TAG + ": [RESP] Hooked " + sig);
+            }
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": [RESP] ConnectionSocket not found: " + t);
+        }
     }
 
     private void hookSendSecureData(XC_LoadPackage.LoadPackageParam lpparam) {
