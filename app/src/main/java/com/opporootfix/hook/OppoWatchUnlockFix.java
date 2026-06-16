@@ -7,6 +7,7 @@ import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Field;
 
 public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
 
@@ -37,40 +38,60 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
         try {
             String cn = "com.oplus.linker.unlock.connect.ConnectionSocket";
             Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
+            XposedBridge.log(TAG + ": [RESP] Found ConnectionSocket, hooking all methods");
 
             for (Method m : cl.getDeclaredMethods()) {
-                String name = m.getName();
-                if (!name.contains("processLockEvent")) continue;
-
-                Class<?>[] params = m.getParameterTypes();
-                boolean hasByteArray = false;
-                int byteIdx = -1;
-                for (int i = 0; i < params.length; i++) {
-                    if (params[i] == byte[].class) { hasByteArray = true; byteIdx = i; }
-                }
-                if (!hasByteArray) continue;
-
-                final String sig = cn + "." + name;
-                final int fByteIdx = byteIdx;
-
-                XposedBridge.hookMethod(m, new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
-                        if (fByteIdx >= 0 && p.args[fByteIdx] instanceof byte[]) {
-                            byte[] data = (byte[]) p.args[fByteIdx];
-                            XposedBridge.log(TAG + ": [RESP] " + sig + " before: " + bytesToHex(data));
+                try {
+                    final String sig = cn + "." + m.getName();
+                    XposedBridge.hookMethod(m, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                            StringBuilder args = new StringBuilder();
+                            for (Object arg : p.args) {
+                                if (arg == null) args.append("null");
+                                else if (arg instanceof byte[]) args.append("byte[").append(((byte[])arg).length).append("]");
+                                else if (arg instanceof int[]) args.append("int[").append(((int[])arg).length).append("]");
+                                else if (arg instanceof String) args.append("\"").append(((String)arg).substring(0, Math.min(50, ((String)arg).length()))).append("\"");
+                                else args.append(arg.getClass().getSimpleName());
+                                args.append(", ");
+                            }
+                            XposedBridge.log(TAG + ": [>>] " + sig + "(" + args + ")");
                         }
-                    }
 
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
-                        if (fByteIdx >= 0 && p.args[fByteIdx] instanceof byte[]) {
-                            byte[] data = (byte[]) p.args[fByteIdx];
-                            XposedBridge.log(TAG + ": [RESP] " + sig + " after: " + bytesToHex(data));
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                            Throwable t = p.getThrowable();
+                            if (t != null) {
+                                XposedBridge.log(TAG + ": [THREW] " + sig + ": " + t);
+                                p.setThrowable(null);
+                            }
+
+                            Object r = p.getResult();
+                            if (r != null) {
+                                if (r instanceof byte[]) {
+                                    byte[] data = (byte[]) r;
+                                    XposedBridge.log(TAG + ": [<<] " + sig + " = byte[" + data.length + "]");
+                                } else {
+                                    String rStr = r.toString();
+                                    XposedBridge.log(TAG + ": [<<] " + sig + " = " + r.getClass().getSimpleName() +
+                                        "(" + rStr.substring(0, Math.min(100, rStr.length())) + ")");
+                                }
+                            }
+
+                            for (Field f : p.thisObject.getClass().getDeclaredFields()) {
+                                try {
+                                    f.setAccessible(true);
+                                    Object val = f.get(p.thisObject);
+                                    if (val instanceof Integer && (Integer) val != 0) {
+                                        XposedBridge.log(TAG + ": [FIELD] " + f.getName() + " = " + val);
+                                    } else if (val instanceof Boolean) {
+                                        XposedBridge.log(TAG + ": [FIELD] " + f.getName() + " = " + val);
+                                    }
+                                } catch (Throwable ignored) {}
+                            }
                         }
-                    }
-                });
-                XposedBridge.log(TAG + ": [RESP] Hooked " + sig);
+                    });
+                } catch (Throwable ignored) {}
             }
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": [RESP] ConnectionSocket not found: " + t);
