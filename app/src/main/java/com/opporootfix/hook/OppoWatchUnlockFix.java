@@ -28,10 +28,168 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
     }
 
     private void hookLinker(XC_LoadPackage.LoadPackageParam lpparam) {
-        XposedBridge.log(TAG + ": === LINKER v1.7.0 ===");
+        XposedBridge.log(TAG + ": === LINKER v1.12.0 ===");
         hookCipherObserve(lpparam);
         hookSendSecureData(lpparam);
         hookProcessLockEventResponse(lpparam);
+        hookEncryptionUtilsAndKeys(lpparam);
+    }
+
+    private void hookEncryptionUtilsAndKeys(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            String[] euClasses = {
+                "com.oplus.linker.unlock.utils.EncryptionUtils",
+                "com.oplus.linker.crypto.EncryptionUtils",
+                "com.oplus.linker.EncryptionUtils",
+                "com.oplus.linker.unlock.EncryptionUtils",
+                "com.oplus.linker.utils.EncryptionUtils"
+            };
+
+            for (String cn : euClasses) {
+                try {
+                    Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
+                    XposedBridge.log(TAG + ": [KEY] Found " + cn);
+
+                    for (Method m : cl.getDeclaredMethods()) {
+                        try {
+                            final String sig = cn + "." + m.getName();
+                            XposedBridge.hookMethod(m, new XC_MethodHook() {
+                                @Override
+                                protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                                    StringBuilder args = new StringBuilder();
+                                    for (Object arg : p.args) {
+                                        if (arg == null) args.append("null");
+                                        else if (arg instanceof byte[]) args.append("byte[").append(((byte[])arg).length).append("]");
+                                        else args.append(arg.getClass().getSimpleName());
+                                        args.append(", ");
+                                    }
+                                    XposedBridge.log(TAG + ": [KEY>>] " + sig + "(" + args + ")");
+                                }
+
+                                @Override
+                                protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                                    Throwable t = p.getThrowable();
+                                    if (t != null) {
+                                        XposedBridge.log(TAG + ": [KEY-ERR] " + sig + " threw: " + t);
+                                        p.setThrowable(null);
+                                    }
+                                    Object r = p.getResult();
+                                    if (r != null) {
+                                        if (r instanceof byte[]) {
+                                            XposedBridge.log(TAG + ": [KEY<<] " + sig + " = byte[" + ((byte[])r).length + "]");
+                                        } else {
+                                            XposedBridge.log(TAG + ": [KEY<<] " + sig + " = " + r.getClass().getSimpleName());
+                                        }
+                                    }
+                                }
+                            });
+                        } catch (Throwable ignored) {}
+                    }
+                    break;
+                } catch (Throwable ignored) {}
+            }
+
+            String[] connClasses = {
+                "com.oplus.linker.unlock.connect.ConnectionManager",
+                "com.oplus.linker.ConnectionManager",
+                "com.oplus.linker.unlock.ConnectionManager"
+            };
+
+            for (String cn : connClasses) {
+                try {
+                    Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
+                    XposedBridge.log(TAG + ": [KEY] Found " + cn);
+
+                    for (Method m : cl.getDeclaredMethods()) {
+                        String name = m.getName();
+                        if (name.contains("key") || name.contains("Key") ||
+                            name.contains("agree") || name.contains("Agree") ||
+                            name.contains("encrypt") || name.contains("Encrypt") ||
+                            name.contains("conKey") || name.contains("nonce") ||
+                            name.contains("Nonce")) {
+                            try {
+                                final String sig = cn + "." + name;
+                                XposedBridge.hookMethod(m, new XC_MethodHook() {
+                                    @Override
+                                    protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                                        StringBuilder args = new StringBuilder();
+                                        for (Object arg : p.args) {
+                                            if (arg == null) args.append("null");
+                                            else if (arg instanceof byte[]) args.append("byte[").append(((byte[])arg).length).append("]");
+                                            else args.append(arg.getClass().getSimpleName());
+                                            args.append(", ");
+                                        }
+                                        XposedBridge.log(TAG + ": [CONN>>] " + sig + "(" + args + ")");
+                                    }
+
+                                    @Override
+                                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                                        Throwable t = p.getThrowable();
+                                        if (t != null) {
+                                            XposedBridge.log(TAG + ": [CONN-ERR] " + sig + " threw: " + t);
+                                            p.setThrowable(null);
+                                        }
+                                        Object r = p.getResult();
+                                        if (r != null) {
+                                            XposedBridge.log(TAG + ": [CONN<<] " + sig + " = " + r.getClass().getSimpleName());
+                                        }
+                                    }
+                                });
+                                XposedBridge.log(TAG + ": [KEY] Hooked " + sig);
+                            } catch (Throwable ignored) {}
+                        }
+                    }
+                    break;
+                } catch (Throwable ignored) {}
+            }
+
+            String[] protoClasses = {
+                "com.oplus.linker.unlock.utils.ProtoDataGenerator",
+                "com.oplus.linker.crypto.ProtoDataGenerator",
+                "com.oplus.linker.ProtoDataGenerator",
+                "com.oplus.linker.unlock.ProtoDataGenerator",
+                "com.oplus.linker.utils.ProtoDataGenerator"
+            };
+
+            for (String cn : protoClasses) {
+                try {
+                    Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
+                    XposedBridge.log(TAG + ": [KEY] Found " + cn);
+
+                    for (Method m : cl.getDeclaredMethods()) {
+                        try {
+                            final String sig = cn + "." + m.getName();
+                            XposedBridge.hookMethod(m, new XC_MethodHook() {
+                                @Override
+                                protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                                    StringBuilder args = new StringBuilder();
+                                    for (Object arg : p.args) {
+                                        if (arg == null) args.append("null");
+                                        else if (arg instanceof byte[]) args.append("byte[").append(((byte[])arg).length).append("]");
+                                        else args.append(arg.getClass().getSimpleName());
+                                        args.append(", ");
+                                    }
+                                    XposedBridge.log(TAG + ": [PROTO>>] " + sig + "(" + args + ")");
+                                }
+
+                                @Override
+                                protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                                    Throwable t = p.getThrowable();
+                                    if (t != null) {
+                                        XposedBridge.log(TAG + ": [PROTO-ERR] " + sig + " threw: " + t);
+                                        p.setThrowable(null);
+                                    }
+                                }
+                            });
+                            XposedBridge.log(TAG + ": [KEY] Hooked " + sig);
+                        } catch (Throwable ignored) {}
+                    }
+                    break;
+                } catch (Throwable ignored) {}
+            }
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": [KEY] Hook failed: " + t);
+        }
     }
 
     private void hookProcessLockEventResponse(XC_LoadPackage.LoadPackageParam lpparam) {
