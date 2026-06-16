@@ -415,58 +415,59 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
 
     private void hookSystemProperties() {
         try {
-            XposedBridge.hookMethod(
-                android.os.SystemProperties.class.getMethod("get", String.class),
-                new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
-                        String key = (String) p.args[0];
-                        if (key == null) return;
-                        String val = (String) p.getResult();
+            Class<?> spClass = Class.forName("android.os.SystemProperties");
+            Method get1 = spClass.getMethod("get", String.class);
+            Method get2 = spClass.getMethod("get", String.class, String.class);
 
-                        if (key.contains("verifiedbootstate")) {
-                            if (!"green".equals(val)) {
-                                XposedBridge.log(TAG + ": [PROP] " + key + "=" + val + " -> green");
-                                p.setResult("green");
-                            }
-                        } else if (key.contains("flash.locked")) {
-                            if (!"1".equals(val)) {
-                                p.setResult("1");
-                                XposedBridge.log(TAG + ": [PROP] " + key + " -> 1");
-                            }
-                        } else if (key.equals("ro.debuggable")) {
-                            p.setResult("0");
-                        } else if (key.equals("ro.secure")) {
-                            p.setResult("1");
-                        } else if (key.equals("ro.build.type")) {
-                            if ("userdebug".equals(val) || "eng".equals(val)) {
-                                p.setResult("user");
-                            }
-                        } else if (key.contains("selinux")) {
-                            p.setResult("1");
-                        } else if (key.contains("ro.adb.secure")) {
-                            p.setResult("1");
+            XposedBridge.hookMethod(get1, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                    String key = (String) p.args[0];
+                    if (key == null) return;
+                    String val = (String) p.getResult();
+
+                    if (key.contains("verifiedbootstate")) {
+                        if (!"green".equals(val)) {
+                            XposedBridge.log(TAG + ": [PROP] " + key + "=" + val + " -> green");
+                            p.setResult("green");
                         }
+                    } else if (key.contains("flash.locked")) {
+                        if (!"1".equals(val)) {
+                            p.setResult("1");
+                            XposedBridge.log(TAG + ": [PROP] " + key + " -> 1");
+                        }
+                    } else if (key.equals("ro.debuggable")) {
+                        p.setResult("0");
+                    } else if (key.equals("ro.secure")) {
+                        p.setResult("1");
+                    } else if (key.equals("ro.build.type")) {
+                        if ("userdebug".equals(val) || "eng".equals(val)) {
+                            p.setResult("user");
+                        }
+                    } else if (key.contains("selinux")) {
+                        p.setResult("1");
+                    } else if (key.contains("ro.adb.secure")) {
+                        p.setResult("1");
                     }
-                });
-            XposedBridge.hookMethod(
-                android.os.SystemProperties.class.getMethod("get", String.class, String.class),
-                new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
-                        String key = (String) p.args[0];
-                        if (key == null) return;
+                }
+            });
 
-                        if (key.contains("verifiedbootstate")) { p.setResult("green"); }
-                        else if (key.contains("flash.locked")) { p.setResult("1"); }
-                        else if (key.equals("ro.debuggable")) { p.setResult("0"); }
-                        else if (key.equals("ro.secure")) { p.setResult("1"); }
-                        else if (key.equals("ro.build.type")) {
-                            String v = (String) p.getResult();
-                            if ("userdebug".equals(v) || "eng".equals(v)) { p.setResult("user"); }
-                        } else if (key.contains("selinux")) { p.setResult("1"); }
-                    }
-                });
+            XposedBridge.hookMethod(get2, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                    String key = (String) p.args[0];
+                    if (key == null) return;
+
+                    if (key.contains("verifiedbootstate")) { p.setResult("green"); }
+                    else if (key.contains("flash.locked")) { p.setResult("1"); }
+                    else if (key.equals("ro.debuggable")) { p.setResult("0"); }
+                    else if (key.equals("ro.secure")) { p.setResult("1"); }
+                    else if (key.equals("ro.build.type")) {
+                        String v = (String) p.getResult();
+                        if ("userdebug".equals(v) || "eng".equals(v)) { p.setResult("user"); }
+                    } else if (key.contains("selinux")) { p.setResult("1"); }
+                }
+            });
             XposedBridge.log(TAG + ": Hooked SystemProperties");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": SystemProperties hook failed: " + t);
