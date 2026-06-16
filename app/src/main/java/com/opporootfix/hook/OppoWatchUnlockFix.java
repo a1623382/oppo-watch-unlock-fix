@@ -274,12 +274,15 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
                 try {
                     final String sig = className + "." + m.getName();
                     Class<?>[] paramTypes = m.getParameterTypes();
-                    boolean hasByteArray = false;
-                    boolean hasString = false;
+                    final boolean hasByteArray;
+                    final boolean hasString;
+                    boolean hb = false, hs = false;
                     for (Class<?> pt : paramTypes) {
-                        if (pt == byte[].class) hasByteArray = true;
-                        if (pt == String.class) hasString = true;
+                        if (pt == byte[].class) hb = true;
+                        if (pt == String.class) hs = true;
                     }
+                    hasByteArray = hb;
+                    hasString = hs;
 
                     XposedBridge.hookMethod(m, new XC_MethodHook() {
                         @Override
