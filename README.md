@@ -57,15 +57,14 @@
 - 启用该模块
 - 将作用域设置为：
   - **com.oplus.linker** (设备互联服务)
-  - **com.heytap.htms** (系统完整性服务)
+  - **com.heytap.htms** (移动服务/系统完整性服务)
   - **com.heytap.health** (欢太健康)
+  - **android** (Android系统) — *重要！sysintegrity进程是system_server子进程*
 
-### 4. 强制停止 com.heytap.htms（关键步骤！）
+### 4. 强制停止「移动服务」（关键步骤！）
 **必须执行此步骤**，否则模块无法hook到sysintegrity进程：
-1. 打开 LSPosed → 模块 → OPPO Watch解锁修复
-2. 点击作用域中的 `com.heytap.htms`
-3. 在应用信息中点击「强制停止」
-4. 或者：设置 → 应用管理 → 搜索「欢太服务」→ 强制停止
+1. 设置 → 应用管理 → 搜索「移动服务」→ 强制停止
+2. 或者：LSPosed → 模块 → 作用域中点击 `com.heytap.htms` → 强制停止
 
 ### 5. 重启手机
 重启手机使hook生效。
@@ -77,9 +76,10 @@
 
 ## 注意事项
 
-1. **需要LSPosed/EdXposed框架**
+1. **需要LSPosed (Zygisk) 框架**
 2. **需要KernelSU root**
-3. **升级APK后必须重新强制停止 `com.heytap.htms`**，否则新的hook代码不会加载到sysintegrity进程
+3. **作用域必须包含 `android`（Android系统）**，否则无法hook sysintegrity进程
+4. **升级APK后必须重新强制停止「移动服务」并重启**，否则新的hook代码不会加载
 4. **如果仍然失败**，可能需要：
    - 确认已强制停止 `com.heytap.htms`
    - 检查KernelSU的Zygisk设置
