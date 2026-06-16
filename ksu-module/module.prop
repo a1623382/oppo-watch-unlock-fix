@@ -1,0 +1,6 @@
+id=oppo-watch-unlock-fix-ksu
+name=OPPO Watch Unlock Fix (KernelSU)
+version=v1.0.0
+versionCode=1
+author=a1623382
+description=Hook stdsrp to fake device integrity for OPPO Watch unlock
