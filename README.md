@@ -226,3 +226,7 @@ T+10s    reset isUnlocking flag (超时)
 - Root：KernelSU
 - LSPosed：Zygisk版本
 - com.heytap.htms 在设备上叫「移动服务」
+
+## 项目声明
+
+本项目使用 AI（MiMo Code，基于 mimo-auto 模型）辅助开发。所有代码、日志分析、方案设计均由 AI 完成。
