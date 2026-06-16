@@ -34,6 +34,7 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
         hookJSONObjectSysIntegrity();
         hookStringBuilderErrorPatch();
         hookKnownLinkerClasses(lpparam);
+        hookEncryptionUtils(lpparam);
     }
 
     // ==================== LINKER ====================
@@ -313,6 +314,189 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": [MOD] error: " + t);
         }
+    }
+
+    private void hookEncryptionUtils(XC_LoadPackage.LoadPackageParam lpparam) {
+        String[] classNames = {
+            "com.oplus.linker.unlock.utils.EncryptionUtils",
+            "com.oplus.linker.crypto.EncryptionUtils",
+            "com.oplus.linker.EncryptionUtils",
+            "com.oplus.linker.utils.EncryptionUtils"
+        };
+
+        int hookedCount = 0;
+        for (String cn : classNames) {
+            try {
+                Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
+                XposedBridge.log(TAG + ": [CRYPTO] Found " + cn);
+
+                for (Method m : cl.getDeclaredMethods()) {
+                    try {
+                        final String sig = cn + "." + m.getName();
+                        Class<?>[] params = m.getParameterTypes();
+
+                        boolean hasByteArray = false;
+                        for (Class<?> pt : params) {
+                            if (pt == byte[].class) { hasByteArray = true; break; }
+                        }
+
+                        XposedBridge.hookMethod(m, new XC_MethodHook() {
+                            @Override
+                            protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                                StringBuilder args = new StringBuilder();
+                                for (int i = 0; i < p.args.length; i++) {
+                                    Object arg = p.args[i];
+                                    if (arg == null) {
+                                        args.append("null");
+                                    } else if (arg instanceof byte[]) {
+                                        byte[] data = (byte[]) arg;
+                                        args.append("byte[").append(data.length).append("]");
+                                        if (data.length > 10) {
+                                            XposedBridge.log(TAG + ": [CRYPTO-IN] " + sig + " arg" + i + " hex=" + bytesToHex(data));
+                                            logProtobufKeywords(data, sig);
+                                        }
+                                    } else {
+                                        args.append(arg.getClass().getSimpleName());
+                                    }
+                                    args.append(", ");
+                                }
+                                XposedBridge.log(TAG + ": [CRYPTO>>] " + sig + "(" + args + ")");
+                            }
+
+                            @Override
+                            protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                                Throwable t = p.getThrowable();
+                                if (t != null) {
+                                    XposedBridge.log(TAG + ": [CRYPTO-ERR] " + sig + " threw: " + t);
+                                    p.setThrowable(null);
+                                }
+                                Object r = p.getResult();
+                                if (r instanceof byte[]) {
+                                    byte[] data = (byte[]) r;
+                                    XposedBridge.log(TAG + ": [CRYPTO-OUT] " + sig + " ret byte[" + data.length + "] hex=" + bytesToHex(data));
+                                    logProtobufKeywords(data, sig);
+                                } else if (r != null) {
+                                    XposedBridge.log(TAG + ": [CRYPTO-OUT] " + sig + " ret=" + r.getClass().getSimpleName());
+                                }
+                            }
+                        });
+                        hookedCount++;
+                        XposedBridge.log(TAG + ": [CRYPTO] Hooked " + sig);
+                    } catch (Throwable ignored) {}
+                }
+                break;
+            } catch (Throwable ignored) {}
+        }
+        XposedBridge.log(TAG + ": [CRYPTO] hooked " + hookedCount + " methods");
+
+        hookEncryptionUtilsByScan(lpparam);
+    }
+
+    private void hookEncryptionUtilsByScan(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            Class<?> cl = Class.forName("android.app.ActivityThread", false, null);
+            Object at = XposedHelpers.callStaticMethod(cl, "currentActivityThread");
+            if (at == null) return;
+            Object pkgs = XposedHelpers.getObjectField(at, "mPackages");
+            if (pkgs == null) return;
+
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, Object> map = (java.util.Map<String, Object>) pkgs;
+            for (Object val : map.values()) {
+                try {
+                    ClassLoader classLoader = (ClassLoader) XposedHelpers.getObjectField(
+                        XposedHelpers.getObjectField(val, "mInfo"), "mClassloader");
+                    if (classLoader == null) continue;
+
+                    Object pathList = XposedHelpers.getObjectField(classLoader, "pathList");
+                    if (pathList == null) continue;
+                    Object[] dexElements = (Object[]) XposedHelpers.getObjectField(pathList, "dexElements");
+                    if (dexElements == null) continue;
+
+                    for (Object element : dexElements) {
+                        Object dexFile = XposedHelpers.getObjectField(element, "dexFile");
+                        if (dexFile == null) continue;
+
+                        java.util.Enumeration<String> entries = (java.util.Enumeration<String>)
+                            XposedHelpers.callMethod(dexFile, "entries");
+
+                        while (entries.hasMoreElements()) {
+                            String className = entries.nextElement();
+                            if (className == null) continue;
+                            String lower = className.toLowerCase();
+
+                            if (lower.contains("encrypt") && lower.contains("util")) {
+                                try {
+                                    Class<?> clazz = Class.forName(className, false, classLoader);
+                                    XposedBridge.log(TAG + ": [SCAN-ENC] Found: " + className);
+                                    for (Method m : clazz.getDeclaredMethods()) {
+                                        Class<?>[] pts = m.getParameterTypes();
+                                        for (Class<?> pt : pts) {
+                                            if (pt == byte[].class) {
+                                                try {
+                                                    final String sig = className + "." + m.getName();
+                                                    XposedBridge.hookMethod(m, new XC_MethodHook() {
+                                                        @Override
+                                                        protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                                                            for (Object arg : p.args) {
+                                                                if (arg instanceof byte[]) {
+                                                                    byte[] data = (byte[]) arg;
+                                                                    if (data.length > 10) {
+                                                                        XposedBridge.log(TAG + ": [SCAN-BYTE] " + sig + " len=" + data.length);
+                                                                        logProtobufKeywords(data, sig);
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+
+                                                        @Override
+                                                        protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                                                            Object r = p.getResult();
+                                                            if (r instanceof byte[]) {
+                                                                byte[] data = (byte[]) r;
+                                                                XposedBridge.log(TAG + ": [SCAN-RET] " + sig + " ret len=" + data.length);
+                                                                logProtobufKeywords(data, sig);
+                                                            }
+                                                        }
+                                                    });
+                                                    XposedBridge.log(TAG + ": [SCAN-ENC] Hooked " + sig);
+                                                } catch (Throwable ignored) {}
+                                                break;
+                                            }
+                                        }
+                                    }
+                                } catch (Throwable ignored) {}
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": [SCAN-ENC] error: " + t);
+        }
+    }
+
+    private void logProtobufKeywords(byte[] data, String context) {
+        try {
+            String str = new String(data, "UTF-8");
+            String lower = str.toLowerCase();
+            if (lower.contains("integrity") || lower.contains("sysint") ||
+                lower.contains("attest") || lower.contains("boot") ||
+                lower.contains("security") || lower.contains("unlock") ||
+                lower.contains("signature") || lower.contains("token")) {
+                XposedBridge.log(TAG + ": [PROTO-KEY] " + context + " has keywords!");
+                StringBuilder readable = new StringBuilder();
+                for (int i = 0; i < data.length; i++) {
+                    int b = data[i] & 0xFF;
+                    if (b >= 32 && b < 127) {
+                        readable.append((char) b);
+                    } else {
+                        readable.append('.');
+                    }
+                }
+                XposedBridge.log(TAG + ": [PROTO-ASCII] " + context + ": " + readable.toString());
+            }
+        } catch (Throwable ignored) {}
     }
 
     private static String bytesToHex(byte[] bytes) {
