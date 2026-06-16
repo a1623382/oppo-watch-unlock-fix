@@ -173,11 +173,14 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
         try {
             String cn = "com.oplus.linker.unlock.connect.ConnectionSocket";
             Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
-            XposedBridge.log(TAG + ": [DIRECT] Found ConnectionSocket, hooking ALL methods");
+            XposedBridge.log(TAG + ": [DIRECT] Found ConnectionSocket");
 
             for (Method m : cl.getDeclaredMethods()) {
                 try {
                     final String sig = cn + "." + m.getName();
+                    boolean isProcessLockEvent = m.getName().contains("processLockEvent");
+                    boolean isOnReceive = m.getName().equals("onReceive");
+
                     XposedBridge.hookMethod(m, new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
@@ -188,7 +191,14 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
                                 } else if (arg instanceof byte[]) {
                                     byte[] data = (byte[]) arg;
                                     args.append("byte[").append(data.length).append("]");
-                                    logRelevantBytes(data, sig);
+
+                                    if (isProcessLockEvent) {
+                                        XposedBridge.log(TAG + ": [HEX] " + sig + " hex=" + bytesToHex(data));
+                                    }
+
+                                    if (data.length > 100) {
+                                        logRelevantBytes(data, sig);
+                                    }
                                 } else if (arg instanceof String) {
                                     String s = (String) arg;
                                     args.append("\"").append(s.substring(0, Math.min(100, s.length()))).append("\"");
@@ -209,16 +219,112 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
                             }
                             Object r = p.getResult();
                             if (r != null) {
+                                String rStr = r.toString();
                                 XposedBridge.log(TAG + ": [<<] " + sig + " = " + r.getClass().getSimpleName() +
-                                    "(" + r.toString().substring(0, Math.min(100, r.toString().length())) + ")");
+                                    "(" + rStr.substring(0, Math.min(100, rStr.length())) + ")");
                             }
                         }
                     });
                 } catch (Throwable ignored) {}
             }
+
+            hookConnectionManagerSecureSend(lpparam);
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": [DIRECT] ConnectionSocket not found: " + t);
         }
+    }
+
+    private void hookConnectionManagerSecureSend(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            String cn = "com.oplus.linker.unlock.connect.ConnectionManager";
+            Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
+            XposedBridge.log(TAG + ": [DIRECT] Found ConnectionManager");
+
+            for (Method m : cl.getDeclaredMethods()) {
+                String name = m.getName();
+                if (!name.contains("sendSecure") && !name.contains("secureSend")) continue;
+
+                Class<?>[] params = m.getParameterTypes();
+                boolean hasByteArray = false;
+                boolean hasString = false;
+                for (Class<?> pt : params) {
+                    if (pt == byte[].class) hasByteArray = true;
+                    if (pt == String.class) hasString = true;
+                }
+                if (!hasByteArray) continue;
+
+                final String sig = cn + "." + name;
+                final int byteArrayIndex;
+                final int stringIndex;
+                int bi = -1, si = -1;
+                for (int i = 0; i < params.length; i++) {
+                    if (params[i] == byte[].class && bi == -1) bi = i;
+                    if (params[i] == String.class && si == -1) si = i;
+                }
+                byteArrayIndex = bi;
+                stringIndex = si;
+
+                XposedBridge.hookMethod(m, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                        String op = stringIndex >= 0 && p.args[stringIndex] != null ?
+                            (String) p.args[stringIndex] : "unknown";
+
+                        if (byteArrayIndex >= 0 && p.args[byteArrayIndex] instanceof byte[]) {
+                            byte[] data = (byte[]) p.args[byteArrayIndex];
+                            XposedBridge.log(TAG + ": [SEND] " + op + " len=" + data.length);
+
+                            if (op.contains("unlock")) {
+                                XposedBridge.log(TAG + ": [SEND-UNLOCK] hex=" + bytesToHex(data));
+                                modifyUnlockPayload(data);
+                            }
+                        }
+                    }
+                });
+                XposedBridge.log(TAG + ": Hooked " + sig);
+            }
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": ConnectionManager hook failed: " + t);
+        }
+    }
+
+    private void modifyUnlockPayload(byte[] data) {
+        try {
+            String str = new String(data, "UTF-8");
+
+            int count = 0;
+            if (str.contains("\"sysIntegrity\":false")) {
+                String modified = str.replace("\"sysIntegrity\":false", "\"sysIntegrity\":true");
+                byte[] modifiedBytes = modified.getBytes("UTF-8");
+                System.arraycopy(modifiedBytes, 0, data, 0, Math.min(modifiedBytes.length, data.length));
+                count++;
+                XposedBridge.log(TAG + ": [MOD] patched sysIntegrity in payload");
+            }
+
+            if (str.contains("sysIntegrity\\\":false")) {
+                String modified = str.replace("sysIntegrity\\\":false", "sysIntegrity\\\":true");
+                byte[] modifiedBytes = modified.getBytes("UTF-8");
+                System.arraycopy(modifiedBytes, 0, data, 0, Math.min(modifiedBytes.length, data.length));
+                count++;
+                XposedBridge.log(TAG + ": [MOD] patched escaped sysIntegrity in payload");
+            }
+
+            XposedBridge.log(TAG + ": [MOD] payload modifications: " + count);
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": [MOD] error: " + t);
+        }
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        int limit = Math.min(bytes.length, 64);
+        for (int i = 0; i < limit; i++) {
+            sb.append(String.format("%02x", bytes[i] & 0xFF));
+            if ((i + 1) % 16 == 0) sb.append("\n  ");
+            else sb.append(" ");
+        }
+        if (bytes.length > 64) sb.append("...(").append(bytes.length).append(" total)");
+        return sb.toString();
     }
 
     private void hookSpecificMethods(Class<?> clazz, String className) {
