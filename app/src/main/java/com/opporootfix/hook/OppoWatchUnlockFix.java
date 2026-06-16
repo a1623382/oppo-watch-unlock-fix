@@ -214,9 +214,7 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
                             }
                         }
                     });
-                } catch (Throwable t) {
-                    XposedBridge.log(TAG + ": [DIRECT] Failed to hook " + sig + ": " + t);
-                }
+                } catch (Throwable ignored) {}
             }
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": [DIRECT] ConnectionSocket not found: " + t);
