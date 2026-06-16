@@ -61,15 +61,36 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
                                 }
                             }
                         });
-                        XposedBridge.log(TAG + ": [RESP] Hooked " + sig + " (will override error code)");
-                    } else if (name.contains("processSuccess") || name.contains("processUnlock")) {
+                        XposedBridge.log(TAG + ": [RESP] Hooked " + sig);
+                    } else if (name.equals("processLockEventResponse")) {
                         XposedBridge.hookMethod(m, new XC_MethodHook() {
                             @Override
                             protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
-                                XposedBridge.log(TAG + ": [SUCCESS] " + sig + " called!");
+                                for (int i = 0; i < p.args.length; i++) {
+                                    if (p.args[i] instanceof byte[]) {
+                                        byte[] data = (byte[]) p.args[i];
+                                        XposedBridge.log(TAG + ": [EVT] " + sig + " before: " + bytesToHex(data));
+
+                                        boolean changed = false;
+                                        for (int j = 0; j < data.length; j++) {
+                                            if (data[j] == 5 || data[j] == 13) {
+                                                XposedBridge.log(TAG + ": [EVT] Found error byte " + data[j] + " at offset " + j);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            @Override
+                            protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                                Throwable t = p.getThrowable();
+                                if (t != null) {
+                                    XposedBridge.log(TAG + ": [EVT-ERR] " + sig + " threw: " + t);
+                                    p.setThrowable(null);
+                                }
                             }
                         });
-                        XposedBridge.log(TAG + ": [RESP] Hooked " + sig + " (success path)");
+                        XposedBridge.log(TAG + ": [RESP] Hooked " + sig + " (event handler)");
                     } else {
                         XposedBridge.hookMethod(m, new XC_MethodHook() {
                             @Override
