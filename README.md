@@ -61,12 +61,7 @@
   - **com.heytap.health** (欢太健康)
   - **android** (Android系统) — *重要！sysintegrity进程是system_server子进程*
 
-### 4. 强制停止「移动服务」（关键步骤！）
-**必须执行此步骤**，否则模块无法hook到sysintegrity进程：
-1. 设置 → 应用管理 → 搜索「移动服务」→ 强制停止
-2. 或者：LSPosed → 模块 → 作用域中点击 `com.heytap.htms` → 强制停止
-
-### 5. 重启手机
+### 4. 重启手机
 重启手机使hook生效。
 
 ### 6. 测试
@@ -79,7 +74,7 @@
 1. **需要LSPosed (Zygisk) 框架**
 2. **需要KernelSU root**
 3. **作用域必须包含 `android`（Android系统）**，否则无法hook sysintegrity进程
-4. **升级APK后必须重新强制停止「移动服务」并重启**，否则新的hook代码不会加载
+4. **升级APK后需要重启手机**，否则新的hook代码不会加载
 4. **如果仍然失败**，可能需要：
    - 确认已强制停止 `com.heytap.htms`
    - 检查KernelSU的Zygisk设置
