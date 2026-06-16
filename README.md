@@ -73,12 +73,13 @@ processSuccessLockEventResult → EncryptionUtils encrypt: pbSequence/key/iv=nul
 - 但 `EncryptionUtils` 找不到密钥
 - `EncryptionUtils` 类名被混淆，无法通过名称hook
 
-### 5. com.heytap.htms:sysintegrity 进程无法被LSPosed hook
+### 5. com.heytap.htms:sysintegrity 进程
 
-- 该进程由 system_server (PID 1985) 直接启动
-- LSPosed (Zygisk) 只能hook经过Zygote fork的进程
-- 该进程的 `processCmdV2` native函数生成TEE证明数据
-- 即使在LSPosed作用域中添加了 `com.heytap.htms` 和 `android`，也无法注入
+- **默认状态**：由 system_server (PID 1985) 直接启动，LSPosed无法注入
+- **杀死后重启**：`am force-stop com.heytap.htms` 后，LSPosed可以成功注入该进程
+- **hook结果**：成功hook到 `SystemProperties.get()` 和 `Build` 字段
+- **但仍然无效**：TEE证明在native层(`processCmdV2`)生成，Java层的SystemProperties hook无法影响native代码读取的设备状态
+- **结论**：即使hook到sysintegrity进程，也无法从Java层修改TEE证明。native层的设备状态读取绕过了Java hook
 
 ### 6. JSON patch 只修改了显示层
 
@@ -109,11 +110,15 @@ processSuccessLockEventResult → EncryptionUtils encrypt: pbSequence/key/iv=nul
 - ❌ `EncryptionUtils.encrypt: pbSequence/key/iv=null` — 密钥为空
 - ❌ 手机卡在"正在解锁"状态
 
-### 方案4：KernelSU模块修改系统属性
-- ✅ `resetprop ro.boot.verifiedbootstate green`
-- ✅ `resetprop ro.boot.flash.locked 1`
-- ❌ TEE证明是硬件级的，系统属性修改无效
-- ❌ 激进的属性修改导致卡开机（已修复）
+### 方案4：KernelSU模块修改系统属性 + 隐藏root
+- ✅ `resetprop ro.boot.verifiedbootstate green` — 属性补丁成功
+- ✅ `resetprop ro.boot.flash.locked 1` — 属性补丁成功
+- ✅ `resetprop ro.boot.selinux 1` — 属性补丁成功
+- ✅ 杀死 `com.heytap.htms:sysintegrity` 进程后重启，LSPosed成功hook到该进程
+- ✅ hook到 `SystemProperties.get()` 和 `Build` 字段
+- ❌ TEE证明是硬件级的，系统属性修改对TEE证明无效
+- ❌ 激进的属性修改（如修改Build.TYPE、Build.TAGS等）导致卡开机（已修复为只修改3个属性）
+- **结论**：系统属性补丁对TEE证明无效，但对部分Java层检查可能有效
 
 ### 方案5：Hook所有ConnectionSocket方法 + dump字段
 - ✅ 找到 `processFailLockEventResult(Integer)` 方法
