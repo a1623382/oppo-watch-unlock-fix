@@ -27,18 +27,16 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
         }
     }
 
-    // ==================== LINKER PROCESS ====================
-
     private void hookLinker(XC_LoadPackage.LoadPackageParam lpparam) {
-        XposedBridge.log(TAG + ": === LINKER v1.3.1 ===");
+        XposedBridge.log(TAG + ": === LINKER v1.3.2 ===");
 
         hookCipher();
         hookJSONObjectSysIntegrity();
-        hookClassForName(lpparam);
-        hookClassLoaderLoadClass(lpparam);
-        hookStringBuilderToString();
-        hookMSPResponseInterceptor(lpparam);
+        hookStringBuilderErrorPatch();
+        hookKnownLinkerClasses(lpparam);
     }
+
+    // ==================== LINKER ====================
 
     private void hookCipher() {
         try {
@@ -103,93 +101,7 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
         }
     }
 
-    // Hook Class.forName() to catch when linker loads classes we care about
-    private void hookClassForName(XC_LoadPackage.LoadPackageParam lpparam) {
-        try {
-            XposedBridge.hookMethod(
-                Class.class.getMethod("forName", String.class),
-                new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
-                        String name = (String) p.args[0];
-                        if (name == null) return;
-                        Class<?> cl = (Class<?>) p.getResult();
-                        if (cl == null) return;
-
-                        String lower = name.toLowerCase();
-                        if (lower.contains("connectionsocket") || lower.contains("connectionmanager") ||
-                            lower.contains("encryptionutils") || lower.contains("protodatagenerator") ||
-                            lower.contains("unlock") || lower.contains("srp") ||
-                            lower.contains("msp") || lower.contains("integrity") ||
-                            lower.contains("attestation") || lower.contains("token")) {
-
-                            XposedBridge.log(TAG + ": [FORNAME] " + name + " -> hooking methods");
-                            hookAllMethodsOfClass(cl, name);
-                        }
-                    }
-                });
-
-            XposedBridge.hookMethod(
-                Class.class.getMethod("forName", String.class, boolean.class, ClassLoader.class),
-                new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
-                        String name = (String) p.args[0];
-                        if (name == null) return;
-                        Class<?> cl = (Class<?>) p.getResult();
-                        if (cl == null) return;
-
-                        String lower = name.toLowerCase();
-                        if (lower.contains("connectionsocket") || lower.contains("connectionmanager") ||
-                            lower.contains("encryptionutils") || lower.contains("protodatagenerator") ||
-                            lower.contains("unlock") || lower.contains("srp") ||
-                            lower.contains("msp") || lower.contains("integrity") ||
-                            lower.contains("attestation") || lower.contains("token")) {
-
-                            XposedBridge.log(TAG + ": [FORNAME2] " + name + " -> hooking methods");
-                            hookAllMethodsOfClass(cl, name);
-                        }
-                    }
-                });
-            XposedBridge.log(TAG + ": Hooked Class.forName");
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + ": Class.forName hook failed: " + t);
-        }
-    }
-
-    // Hook ClassLoader.loadClass() to catch obfuscated class loading
-    private void hookClassLoaderLoadClass(XC_LoadPackage.LoadPackageParam lpparam) {
-        try {
-            Class<?> baseClClass = Class.forName("java.lang.ClassLoader");
-            XposedBridge.hookMethod(
-                baseClClass.getMethod("loadClass", String.class),
-                new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
-                        String name = (String) p.args[0];
-                        if (name == null) return;
-                        Class<?> cl = (Class<?>) p.getResult();
-                        if (cl == null) return;
-
-                        String lower = name.toLowerCase();
-                        if (lower.contains("connectionsocket") || lower.contains("connectionmanager") ||
-                            lower.contains("encryptionutils") || lower.contains("protodatagenerator") ||
-                            lower.contains("unlock") || lower.contains("srp") ||
-                            lower.contains("msp") || lower.contains("integrity")) {
-
-                            XposedBridge.log(TAG + ": [LOADCLASS] " + name);
-                            hookAllMethodsOfClass(cl, name);
-                        }
-                    }
-                });
-            XposedBridge.log(TAG + ": Hooked ClassLoader.loadClass");
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + ": ClassLoader hook failed: " + t);
-        }
-    }
-
-    // Hook StringBuilder.toString() to trace data construction
-    private void hookStringBuilderToString() {
+    private void hookStringBuilderErrorPatch() {
         try {
             XposedBridge.hookMethod(
                 StringBuilder.class.getMethod("toString"),
@@ -202,149 +114,137 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
                         if (s.contains("sysIntegrity") && s.contains("false")) {
                             String patched = s.replace("\"sysIntegrity\":false", "\"sysIntegrity\":true");
                             p.setResult(patched);
-                            XposedBridge.log(TAG + ": [SB] patched sysIntegrity in StringBuilder");
+                            XposedBridge.log(TAG + ": [SB] patched sysIntegrity");
                         }
 
                         if (s.contains("errorCode") && s.contains("13")) {
-                            XposedBridge.log(TAG + ": [SB] found errorCode=13 in StringBuilder");
-                            // Log stack trace to find where this is constructed
                             StackTraceElement[] stack = Thread.currentThread().getStackTrace();
                             StringBuilder trace = new StringBuilder();
-                            for (int i = 3; i < Math.min(stack.length, 8); i++) {
+                            for (int i = 3; i < Math.min(stack.length, 6); i++) {
                                 trace.append(stack[i].toString()).append("\n");
                             }
-                            XposedBridge.log(TAG + ": [SB] stack:\n" + trace.toString());
+                            XposedBridge.log(TAG + ": [SB] errorCode=13 stack:\n" + trace);
                         }
                     }
                 });
-            XposedBridge.log(TAG + ": Hooked StringBuilder.toString");
+            XposedBridge.log(TAG + ": Hooked StringBuilder");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": StringBuilder hook failed: " + t);
         }
     }
 
-    // Hook all methods that take byte[] or return byte[] - trace MSP IPC data
-    private void hookMSPResponseInterceptor(XC_LoadPackage.LoadPackageParam lpparam) {
+    private void hookKnownLinkerClasses(XC_LoadPackage.LoadPackageParam lpparam) {
         int count = 0;
-        try {
-            // Scan all loaded classes via pathList/dexElements
-            ClassLoader cl = lpparam.classLoader;
-            Object pathList = XposedHelpers.getObjectField(cl, "pathList");
-            if (pathList != null) {
-                Object[] dexElements = (Object[]) XposedHelpers.getObjectField(pathList, "dexElements");
-                if (dexElements != null) {
-                    for (Object element : dexElements) {
-                        Object dexFile = XposedHelpers.getObjectField(element, "dexFile");
-                        if (dexFile == null) continue;
+        String[] prefixes = {
+            "com.oplus.linker.unlock",
+            "com.oplus.linker.crypto",
+            "com.oplus.linker.integrity",
+            "com.oplus.linker.socket",
+            "com.oplus.linker.srp",
+            "com.oplus.linker"
+        };
+        String[] suffixes = {
+            "ConnectionSocket", "ConnectionManager", "UnlockManager",
+            "EncryptionUtils", "ProtoDataGenerator", "WatchUnlockManager",
+            "UnlockHelper", "IntegrityChecker", "SrpUtils",
+            "AttestationUtils", "PhoneUnlockWatchManager",
+            "SmartLockManager", "TokenManager", "LockManager",
+            "UnlockDataCache", "PhoneConnectionProvider"
+        };
 
-                        java.util.Enumeration<String> entries = (java.util.Enumeration<String>)
-                            XposedHelpers.callMethod(dexFile, "entries");
-
-                        while (entries.hasMoreElements()) {
-                            String className = entries.nextElement();
-                            if (className == null) continue;
-                            String lower = className.toLowerCase();
-
-                            if (lower.contains("connection") || lower.contains("socket") ||
-                                lower.contains("manager") || lower.contains("encrypt") ||
-                                lower.contains("proto") || lower.contains("unlock") ||
-                                lower.contains("token") || lower.contains("srp") ||
-                                lower.contains("msp") || lower.contains("integrity") ||
-                                lower.contains("attest") || lower.contains("linker")) {
-
-                                try {
-                                    Class<?> clazz = Class.forName(className, false, cl);
-                                    hookAllMethodsOfClass(clazz, className);
-                                    count++;
-                                } catch (Throwable ignored) {}
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + ": MSP scan error: " + t);
-        }
-        XposedBridge.log(TAG + ": MSP scanned and hooked " + count + " classes");
-    }
-
-    private void hookAllMethodsOfClass(Class<?> clazz, String className) {
-        try {
-            for (Method m : clazz.getDeclaredMethods()) {
+        for (String prefix : prefixes) {
+            for (String suffix : suffixes) {
+                String cn = prefix + "." + suffix;
                 try {
-                    final String sig = className + "." + m.getName();
-                    Class<?>[] paramTypes = m.getParameterTypes();
-                    final boolean hasByteArray;
-                    final boolean hasString;
-                    boolean hb = false, hs = false;
-                    for (Class<?> pt : paramTypes) {
-                        if (pt == byte[].class) hb = true;
-                        if (pt == String.class) hs = true;
-                    }
-                    hasByteArray = hb;
-                    hasString = hs;
-
-                    XposedBridge.hookMethod(m, new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
-                            if (hasByteArray) {
-                                for (Object arg : p.args) {
-                                    if (arg instanceof byte[]) {
-                                        byte[] data = (byte[]) arg;
-                                        if (data.length > 5) {
-                                            XposedBridge.log(TAG + ": [BYTE>>] " + sig + " len=" + data.length);
-                                            logRelevantBytes(data, sig);
-                                        }
-                                    }
-                                }
-                            }
-                            if (hasString) {
-                                for (Object arg : p.args) {
-                                    if (arg instanceof String) {
-                                        String s = (String) arg;
-                                        if (s.contains("errorCode") || s.contains("sysIntegrity") ||
-                                            s.contains("unlock") || s.contains("token")) {
-                                            XposedBridge.log(TAG + ": [STR>>] " + sig + " str=" +
-                                                s.substring(0, Math.min(200, s.length())));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam p) throws Throwable {
-                            Throwable t = p.getThrowable();
-                            if (t != null) {
-                                XposedBridge.log(TAG + ": [ERR] " + sig + " threw: " + t);
-                                p.setThrowable(null);
-                            }
-
-                            Object result = p.getResult();
-                            if (result instanceof Boolean && !(Boolean) result) {
-                                p.setResult(true);
-                                XposedBridge.log(TAG + ": [BOOL] " + sig + " false->true");
-                            } else if (result instanceof Integer && (Integer) result != 0) {
-                                p.setResult(0);
-                                XposedBridge.log(TAG + ": [INT] " + sig + " " + result + "->0");
-                            } else if (result instanceof byte[]) {
-                                byte[] data = (byte[]) result;
-                                if (data.length > 5) {
-                                    XposedBridge.log(TAG + ": [BYTE<<] " + sig + " ret len=" + data.length);
-                                    logRelevantBytes(data, sig);
-                                }
-                            } else if (result instanceof String) {
-                                String s = (String) result;
-                                if (s.contains("errorCode") || s.contains("sysIntegrity")) {
-                                    XposedBridge.log(TAG + ": [STR<<] " + sig + " ret=" +
-                                        s.substring(0, Math.min(200, s.length())));
-                                }
-                            }
-                        }
-                    });
+                    Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
+                    hookSpecificMethods(cl, cn);
+                    count++;
                 } catch (Throwable ignored) {}
             }
-        } catch (Throwable t) {}
+        }
+        XposedBridge.log(TAG + ": Known classes hooked: " + count);
+    }
+
+    private void hookSpecificMethods(Class<?> clazz, String className) {
+        for (Method m : clazz.getDeclaredMethods()) {
+            try {
+                String name = m.getName();
+                Class<?>[] params = m.getParameterTypes();
+
+                boolean targetMethod = name.contains("processLock") ||
+                    name.contains("LockEvent") || name.contains("lockEvent") ||
+                    name.contains("sendSecure") || name.contains("encrypt") ||
+                    name.contains("decrypt") || name.contains("processToken") ||
+                    name.contains("register") || name.contains("getLock") ||
+                    name.contains("protoData") || name.contains("ProtoData");
+
+                boolean hasByteArray = false;
+                boolean hasString = false;
+                for (Class<?> pt : params) {
+                    if (pt == byte[].class) hasByteArray = true;
+                    if (pt == String.class) hasString = true;
+                }
+
+                if (!targetMethod && !hasByteArray) continue;
+
+                final String sig = className + "." + name;
+                final boolean fb = hasByteArray;
+                final boolean fs = hasString;
+
+                XposedBridge.hookMethod(m, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                        if (fb) {
+                            for (Object arg : p.args) {
+                                if (arg instanceof byte[]) {
+                                    byte[] data = (byte[]) arg;
+                                    if (data.length > 5) {
+                                        XposedBridge.log(TAG + ": [BYTE>>] " + sig + " len=" + data.length);
+                                        logRelevantBytes(data, sig);
+                                    }
+                                }
+                            }
+                        }
+                        if (fs) {
+                            for (Object arg : p.args) {
+                                if (arg instanceof String) {
+                                    String s = (String) arg;
+                                    if (s.contains("errorCode") || s.contains("sysIntegrity") ||
+                                        s.contains("unlock") || s.contains("token")) {
+                                        XposedBridge.log(TAG + ": [STR>>] " + sig + " str=" +
+                                            s.substring(0, Math.min(200, s.length())));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                        Throwable t = p.getThrowable();
+                        if (t != null) {
+                            XposedBridge.log(TAG + ": [ERR] " + sig + " threw: " + t);
+                            p.setThrowable(null);
+                        }
+
+                        Object result = p.getResult();
+                        if (result instanceof Boolean && !(Boolean) result) {
+                            p.setResult(true);
+                            XposedBridge.log(TAG + ": [BOOL] " + sig + " false->true");
+                        } else if (result instanceof Integer && (Integer) result != 0) {
+                            p.setResult(0);
+                            XposedBridge.log(TAG + ": [INT] " + sig + " " + result + "->0");
+                        } else if (result instanceof byte[]) {
+                            byte[] data = (byte[]) result;
+                            if (data.length > 5) {
+                                XposedBridge.log(TAG + ": [BYTE<<] " + sig + " ret len=" + data.length);
+                                logRelevantBytes(data, sig);
+                            }
+                        }
+                    }
+                });
+            } catch (Throwable ignored) {}
+        }
     }
 
     private void logRelevantBytes(byte[] data, String context) {
@@ -353,26 +253,19 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
             String lower = str.toLowerCase();
             if (lower.contains("integrity") || lower.contains("sysint") ||
                 lower.contains("attest") || lower.contains("boot") ||
-                lower.contains("security") || lower.contains("unlock")) {
-                XposedBridge.log(TAG + ": [BYTE-KEY] " + context + " has relevant data!");
-                StringBuilder hex = new StringBuilder();
-                int limit = Math.min(data.length, 200);
-                for (int i = 0; i < limit; i++) {
-                    hex.append(String.format("%02x", data[i] & 0xFF));
-                    if ((i + 1) % 32 == 0) hex.append("\n");
-                }
-                XposedBridge.log(TAG + ": [BYTE-HEX] " + hex.toString());
+                lower.contains("security")) {
+                XposedBridge.log(TAG + ": [BYTE-KEY] " + context);
             }
         } catch (Throwable ignored) {}
     }
 
-    // ==================== HTMS PROCESS (best effort) ====================
+    // ==================== HTMS ====================
 
     private void hookHtms(XC_LoadPackage.LoadPackageParam lpparam) {
         XposedBridge.log(TAG + ": === HTMS proc=" + lpparam.processName + " ===");
         hookSystemProperties();
         hookBuildClass();
-        hookAllKnownSrpClasses(lpparam);
+        hookKnownSrpClasses(lpparam);
     }
 
     private void hookSystemProperties() {
@@ -435,7 +328,7 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
         }
     }
 
-    private void hookAllKnownSrpClasses(XC_LoadPackage.LoadPackageParam lpparam) {
+    private void hookKnownSrpClasses(XC_LoadPackage.LoadPackageParam lpparam) {
         int count = 0;
         String[] classes = {
             "com.oplus.omes.srp.SrpProviderModule",
@@ -451,14 +344,31 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
         for (String cn : classes) {
             try {
                 Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
-                hookAllMethodsOfClass(cl, cn);
+                for (Method m : cl.getDeclaredMethods()) {
+                    try {
+                        final String sig = cn + "." + m.getName();
+                        XposedBridge.hookMethod(m, new XC_MethodHook() {
+                            @Override
+                            protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                                Object r = p.getResult();
+                                if (r instanceof Boolean && !(Boolean) r) {
+                                    p.setResult(true);
+                                    XposedBridge.log(TAG + ": [SRP] " + sig + " false->true");
+                                } else if (r instanceof Integer && (Integer) r != 0) {
+                                    p.setResult(0);
+                                    XposedBridge.log(TAG + ": [SRP] " + sig + " " + r + "->0");
+                                }
+                            }
+                        });
+                    } catch (Throwable ignored) {}
+                }
                 count++;
             } catch (Throwable ignored) {}
         }
-        XposedBridge.log(TAG + ": SRP hooked " + count + " known classes");
+        XposedBridge.log(TAG + ": SRP hooked " + count + " classes");
     }
 
-    // ==================== HEALTH PROCESS ====================
+    // ==================== HEALTH ====================
 
     private void hookHealth(XC_LoadPackage.LoadPackageParam lpparam) {
         XposedBridge.log(TAG + ": === HEALTH ===");
@@ -470,7 +380,23 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
         for (String cn : classes) {
             try {
                 Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
-                hookAllMethodsOfClass(cl, cn);
+                for (Method m : cl.getDeclaredMethods()) {
+                    String name = m.getName().toLowerCase();
+                    if (name.contains("unlock") || name.contains("smartlock") || name.contains("trust")) {
+                        try {
+                            final String sig = cn + "." + m.getName();
+                            XposedBridge.hookMethod(m, new XC_MethodHook() {
+                                @Override
+                                protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                                    if (p.getResult() instanceof Boolean && !(Boolean) p.getResult()) {
+                                        p.setResult(true);
+                                        XposedBridge.log(TAG + ": [HEALTH] " + sig + " false->true");
+                                    }
+                                }
+                            });
+                        } catch (Throwable ignored) {}
+                    }
+                }
             } catch (Throwable ignored) {}
         }
     }
