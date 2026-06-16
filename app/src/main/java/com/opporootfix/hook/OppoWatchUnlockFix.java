@@ -27,8 +27,68 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
     }
 
     private void hookLinker(XC_LoadPackage.LoadPackageParam lpparam) {
-        XposedBridge.log(TAG + ": === LINKER v1.5.0 ===");
+        XposedBridge.log(TAG + ": === LINKER v1.6.0 ===");
         hookCipherObserve(lpparam);
+        hookSendSecureData(lpparam);
+    }
+
+    private void hookSendSecureData(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            String cn = "com.oplus.linker.unlock.connect.ConnectionManager";
+            Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
+            XposedBridge.log(TAG + ": [REG] Found ConnectionManager");
+
+            for (Method m : cl.getDeclaredMethods()) {
+                String name = m.getName();
+                if (!name.contains("sendSecure") && !name.contains("secureSend")) continue;
+
+                Class<?>[] params = m.getParameterTypes();
+                boolean hasByteArray = false;
+                int byteIdx = -1;
+                int strIdx = -1;
+                for (int i = 0; i < params.length; i++) {
+                    if (params[i] == byte[].class && byteIdx == -1) byteIdx = i;
+                    if (params[i] == String.class && strIdx == -1) strIdx = i;
+                    if (params[i] == byte[].class) hasByteArray = true;
+                }
+                if (!hasByteArray) continue;
+
+                final String sig = cn + "." + name;
+                final int fByteIdx = byteIdx;
+                final int fStrIdx = strIdx;
+
+                XposedBridge.hookMethod(m, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                        String op = fStrIdx >= 0 && p.args[fStrIdx] != null ?
+                            (String) p.args[fStrIdx] : "unknown";
+
+                        if (fByteIdx >= 0 && p.args[fByteIdx] instanceof byte[]) {
+                            byte[] data = (byte[]) p.args[fByteIdx];
+                            XposedBridge.log(TAG + ": [REG] " + op + " len=" + data.length);
+
+                            if (op.contains("register") || op.contains("key") || op.contains("agreement")) {
+                                XposedBridge.log(TAG + ": [REG-KEY] " + op + " hex=" + bytesToHex(data));
+
+                                try {
+                                    String str = new String(data, "UTF-8");
+                                    int idx = str.indexOf("sysIntegrity");
+                                    if (idx >= 0) {
+                                        XposedBridge.log(TAG + ": [REG-KEY] sysIntegrity at offset=" + idx);
+                                        XposedBridge.log(TAG + ": [REG-KEY] context: " +
+                                            str.substring(Math.max(0, idx - 20),
+                                            Math.min(str.length(), idx + 40)));
+                                    }
+                                } catch (Throwable ignored) {}
+                            }
+                        }
+                    }
+                });
+                XposedBridge.log(TAG + ": [REG] Hooked " + sig);
+            }
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": [REG] ConnectionManager not found: " + t);
+        }
     }
 
     private void hookCipherObserve(XC_LoadPackage.LoadPackageParam lpparam) {
