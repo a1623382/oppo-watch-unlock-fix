@@ -225,7 +225,6 @@ T+10s    reset isUnlocking flag (超时)
 - 系统：ColorOS 16.1 (Android 15)
 - Root：KernelSU
 - LSPosed：Zygisk版本
-- com.heytap.htms 在设备上叫「移动服务」
 
 ## 项目声明
 
