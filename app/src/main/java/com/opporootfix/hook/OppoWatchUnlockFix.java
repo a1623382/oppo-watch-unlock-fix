@@ -43,23 +43,21 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
 
                         try {
                             String str = new String(input, "UTF-8");
-                            int idx = str.indexOf("sysIntegrity");
+                            int idx = str.indexOf("\"sysIntegrity\":false");
                             if (idx >= 0) {
-                                XposedBridge.log(TAG + ": [CIPHER] sysIntegrity found at offset=" + idx +
-                                    " total=" + input.length);
+                                XposedBridge.log(TAG + ": [CIPHER] Found sysIntegrity:false at offset=" + idx);
 
-                                StringBuilder around = new StringBuilder();
-                                int start = Math.max(0, idx - 16);
-                                int end = Math.min(input.length, idx + 48);
-                                for (int i = start; i < end; i++) {
-                                    int b = input[i] & 0xFF;
-                                    around.append(String.format("%02x ", b));
-                                    if ((i - start + 1) % 16 == 0) around.append("\n  ");
-                                }
-                                XposedBridge.log(TAG + ": [CIPHER-CTX] around sysIntegrity:\n  " + around);
+                                byte[] replacement = "\"sysIntegrity\":true".getBytes("UTF-8");
+                                byte[] original = "\"sysIntegrity\":false".getBytes("UTF-8");
 
-                                XposedBridge.log(TAG + ": [CIPHER-ASCII] " + str.substring(
-                                    Math.max(0, idx - 32), Math.min(str.length(), idx + 64)));
+                                System.arraycopy(replacement, 0, input, idx, replacement.length);
+
+                                byte[] remaining = new byte[input.length - idx - original.length];
+                                System.arraycopy(input, idx + original.length, remaining, 0, remaining.length);
+                                System.arraycopy(remaining, 0, input, idx + replacement.length, remaining.length);
+
+                                XposedBridge.log(TAG + ": [CIPHER-PATCH] sysIntegrity:false -> true (len " +
+                                    input.length + " -> " + (input.length - 1) + ")");
                             }
                         } catch (Throwable ignored) {}
                     }
@@ -74,7 +72,7 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
                         }
                     }
                 });
-            XposedBridge.log(TAG + ": Hooked Cipher (observe only)");
+            XposedBridge.log(TAG + ": Hooked Cipher (patch mode)");
         } catch (Throwable t) {
             XposedBridge.log(TAG + ": Cipher hook failed: " + t);
         }
