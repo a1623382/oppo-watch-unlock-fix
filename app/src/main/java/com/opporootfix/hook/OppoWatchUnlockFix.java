@@ -71,11 +71,10 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
                                         byte[] data = (byte[]) p.args[i];
                                         XposedBridge.log(TAG + ": [EVT] " + sig + " before: " + bytesToHex(data));
 
-                                        boolean changed = false;
-                                        for (int j = 0; j < data.length; j++) {
-                                            if (data[j] == 5 || data[j] == 13) {
-                                                XposedBridge.log(TAG + ": [EVT] Found error byte " + data[j] + " at offset " + j);
-                                            }
+                                        if (data.length >= 1 && data[0] != 0) {
+                                            byte oldByte = data[0];
+                                            data[0] = 0;
+                                            XposedBridge.log(TAG + ": [EVT-PATCH] byte[0] " + oldByte + " -> 0 (error code cleared)");
                                         }
                                     }
                                 }
