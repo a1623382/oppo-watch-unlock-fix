@@ -45,6 +45,32 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
                 javax.crypto.Cipher.class.getMethod("doFinal", byte[].class),
                 new XC_MethodHook() {
                     @Override
+                    protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                        byte[] input = (byte[]) p.args[0];
+                        if (input == null || input.length < 10) return;
+
+                        try {
+                            String str = new String(input, "UTF-8");
+                            if (str.contains("sysIntegrity")) {
+                                XposedBridge.log(TAG + ": [CIPHER-IN] len=" + input.length +
+                                    " contains sysIntegrity!");
+                                XposedBridge.log(TAG + ": [CIPHER-ASCII] " +
+                                    new String(input, "UTF-8").substring(0,
+                                    Math.min(500, input.length)));
+
+                                if (str.contains("sysIntegrity\":false")) {
+                                    String patched = str.replace("sysIntegrity\":false",
+                                        "sysIntegrity\":true");
+                                    byte[] patchedBytes = patched.getBytes("UTF-8");
+                                    System.arraycopy(patchedBytes, 0, input, 0,
+                                        Math.min(patchedBytes.length, input.length));
+                                    XposedBridge.log(TAG + ": [CIPHER-MOD] patched sysIntegrity in plaintext!");
+                                }
+                            }
+                        } catch (Throwable ignored) {}
+                    }
+
+                    @Override
                     protected void afterHookedMethod(MethodHookParam p) throws Throwable {
                         Throwable t = p.getThrowable();
                         if (t != null && (t.toString().contains("BadPadding") ||
