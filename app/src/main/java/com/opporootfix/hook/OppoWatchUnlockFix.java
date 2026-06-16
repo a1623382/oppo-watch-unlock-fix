@@ -7,8 +7,6 @@ import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 import java.lang.reflect.Method;
-import java.util.HashSet;
-import java.util.Set;
 
 public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
 
@@ -16,429 +14,444 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
-        String pkgName = lpparam.packageName;
-        XposedBridge.log(TAG + ": Loaded pkg=" + pkgName + " process=" + lpparam.processName);
+        String pkg = lpparam.packageName;
+        XposedBridge.log(TAG + ": Loaded pkg=" + pkg + " proc=" + lpparam.processName);
 
-        if ("com.oplus.linker".equals(pkgName)) {
-            hookLinkerApp(lpparam);
-        } else if (pkgName.startsWith("com.heytap.htms")) {
-            hookHtmsProcess(lpparam);
-        } else if ("com.heytap.health".equals(pkgName)) {
-            hookHealthApp(lpparam);
+        if ("com.oplus.linker".equals(pkg)) {
+            hookLinker(lpparam);
+        } else if (pkg.startsWith("com.heytap.htms")) {
+            hookHtms(lpparam);
+        } else if ("com.heytap.health".equals(pkg)) {
+            hookHealth(lpparam);
         }
     }
 
-    private void hookLinkerApp(XC_LoadPackage.LoadPackageParam lpparam) {
-        XposedBridge.log(TAG + ": === Hooking com.oplus.linker ===");
+    private void hookLinker(XC_LoadPackage.LoadPackageParam lpparam) {
+        XposedBridge.log(TAG + ": === LINKER ===");
 
-        hookCipherDecrypt();
-        hookJSONObjectSysIntegrity(lpparam);
-        hookUnlockResponseByScan(lpparam);
+        hookCipher();
+        hookProcessLockEventResponse(lpparam);
+        hookSysIntegrityJson();
     }
 
-    private void hookCipherDecrypt() {
+    private void hookCipher() {
         try {
             XposedBridge.hookMethod(
                 javax.crypto.Cipher.class.getMethod("doFinal", byte[].class),
                 new XC_MethodHook() {
                     @Override
-                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                        Throwable t = param.getThrowable();
+                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                        Throwable t = p.getThrowable();
                         if (t != null && (t.toString().contains("BadPadding") ||
-                            t.toString().contains("BAD_DECRYPT") ||
-                            t.toString().contains("IllegalBlockSize"))) {
-                            XposedBridge.log(TAG + ": Cipher error intercepted: " + t);
-                            param.setThrowable(null);
-                            param.setResult(new byte[0]);
+                            t.toString().contains("BAD_DECRYPT"))) {
+                            p.setThrowable(null);
+                            p.setResult(new byte[0]);
+                            XposedBridge.log(TAG + ": Cipher error intercepted");
                         }
                     }
-                }
-            );
-            XposedBridge.log(TAG + ": Hooked Cipher.doFinal");
+                });
+            XposedBridge.log(TAG + ": Hooked Cipher");
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": Cipher hook failed: " + t.getMessage());
+            XposedBridge.log(TAG + ": Cipher hook failed: " + t);
         }
     }
 
-    private void hookJSONObjectSysIntegrity(XC_LoadPackage.LoadPackageParam lpparam) {
-        try {
-            Class<?> jsonObjClass = org.json.JSONObject.class;
+    private void hookProcessLockEventResponse(XC_LoadPackage.LoadPackageParam lpparam) {
+        String[] prefixes = {
+            "com.oplus.linker.unlock",
+            "com.oplus.linker"
+        };
+        String[] suffixes = {
+            "ConnectionSocket", "a", "b", "c", "d", "e"
+        };
 
-            XposedBridge.hookMethod(
-                jsonObjClass.getMethod("getBoolean", String.class),
-                new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                        if ("sysIntegrity".equals(param.args[0]) && Boolean.FALSE.equals(param.getResult())) {
-                            param.setResult(true);
-                            XposedBridge.log(TAG + ": JSONObject.getBoolean(sysIntegrity) -> true");
-                        }
-                    }
-                }
-            );
+        int found = 0;
+        for (String prefix : prefixes) {
+            for (String suffix : suffixes) {
+                String cn = prefix + "." + suffix;
+                Class<?> cl = findClass(cn, lpparam.classLoader);
+                if (cl == null) continue;
 
-            XposedBridge.hookMethod(
-                jsonObjClass.getMethod("optBoolean", String.class, boolean.class),
-                new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                        if ("sysIntegrity".equals(param.args[0]) && !(Boolean) param.getResult()) {
-                            param.setResult(true);
-                            XposedBridge.log(TAG + ": JSONObject.optBoolean(sysIntegrity) -> true");
-                        }
-                    }
-                }
-            );
-
-            XposedBridge.hookMethod(
-                jsonObjClass.getMethod("optBoolean", String.class),
-                new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                        if ("sysIntegrity".equals(param.args[0]) && Boolean.FALSE.equals(param.getResult())) {
-                            param.setResult(true);
-                            XposedBridge.log(TAG + ": JSONObject.optBoolean2(sysIntegrity) -> true");
-                        }
-                    }
-                }
-            );
-
-            XposedBridge.hookMethod(
-                jsonObjClass.getMethod("put", String.class, boolean.class),
-                new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                        if ("sysIntegrity".equals(param.args[0]) && Boolean.FALSE.equals(param.args[1])) {
-                            param.args[1] = true;
-                            XposedBridge.log(TAG + ": JSONObject.put(sysIntegrity, false) -> true");
-                        }
-                    }
-                }
-            );
-
-            XposedBridge.hookMethod(
-                jsonObjClass.getMethod("toString"),
-                new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                        String result = (String) param.getResult();
-                        if (result != null && result.contains("\"sysIntegrity\":false")) {
-                            result = result.replace("\"sysIntegrity\":false", "\"sysIntegrity\":true");
-                            param.setResult(result);
-                            XposedBridge.log(TAG + ": JSONObject.toString() patched sysIntegrity -> true");
-                        }
-                    }
-                }
-            );
-
-            XposedBridge.hookMethod(
-                jsonObjClass.getMethod("toString", int.class),
-                new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                        String result = (String) param.getResult();
-                        if (result != null && result.contains("\"sysIntegrity\":false")) {
-                            result = result.replace("\"sysIntegrity\":false", "\"sysIntegrity\":true");
-                            param.setResult(result);
-                            XposedBridge.log(TAG + ": JSONObject.toString(indent) patched sysIntegrity -> true");
-                        }
-                    }
-                }
-            );
-
-            XposedBridge.log(TAG + ": Hooked JSONObject for sysIntegrity patching");
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + ": JSONObject hook failed: " + t.getMessage());
-        }
-    }
-
-    private void hookUnlockResponseByScan(XC_LoadPackage.LoadPackageParam lpparam) {
-        int hookedCount = 0;
-        try {
-            Class<?> atClass = Class.forName("android.app.ActivityThread");
-            Object at = XposedHelpers.callStaticMethod(atClass, "currentActivityThread");
-            if (at == null) return;
-
-            java.io.File dataDir = new java.io.File("/data/data/com.oplus.linker");
-            if (!dataDir.exists()) {
-                dataDir = new java.io.File("/data/user/0/com.oplus.linker");
-            }
-
-            ClassLoader cl = lpparam.classLoader;
-            String[] knownPrefixes = {
-                "com.oplus.linker.unlock",
-                "com.oplus.linker.crypto",
-                "com.oplus.linker.integrity",
-                "com.oplus.linker.socket",
-                "com.oplus.linker.srp",
-                "com.oplus.linker"
-            };
-
-            for (String prefix : knownPrefixes) {
-                String[][] suffixes = {
-                    {"ConnectionSocket"}, {"ConnectionManager"}, {"UnlockManager"},
-                    {"EncryptionUtils"}, {"ProtoDataGenerator"}, {"WatchUnlockManager"},
-                    {"UnlockHelper"}, {"IntegrityChecker"}, {"SrpUtils"},
-                    {"AttestationUtils"}, {"PhoneUnlockWatchManager"},
-                    {"SmartLockManager"}, {"TokenManager"}
-                };
-
-                for (String[] suffix : suffixes) {
-                    String className = prefix + "." + suffix[0];
-                    Class<?> clazz = findClass(className, cl);
-                    if (clazz == null) continue;
-
-                    for (Method method : clazz.getDeclaredMethods()) {
-                        String name = method.getName();
-                        boolean match = name.contains("processLock") ||
-                                       name.contains("LockEvent") ||
-                                       name.contains("lockEvent") ||
-                                       name.contains("sendSecure") ||
-                                       name.contains("unlock") ||
-                                       name.contains("Unlock") ||
-                                       name.contains("processToken") ||
-                                       name.contains("fail") ||
-                                       name.contains("error");
-
-                        if (match) {
-                            try {
-                                final String mSig = className + "." + name + "(" + getParamTypes(method) + ")";
-                                XposedBridge.hookMethod(method, new XC_MethodHook() {
-                                    @Override
-                                    protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                                        Throwable t = param.getThrowable();
-                                        if (t != null) {
-                                            XposedBridge.log(TAG + ": [SCAN] " + mSig + " threw: " + t);
-                                            param.setThrowable(null);
-                                        }
-                                        for (Object arg : param.args) {
-                                            if (arg instanceof String) {
-                                                String s = (String) arg;
-                                                if (s.contains("errorCode") || s.contains("sysIntegrity") ||
-                                                    s.contains("fail") || s.contains("unlock")) {
-                                                    XposedBridge.log(TAG + ": [SCAN] " + mSig + " strArg: " +
-                                                        s.substring(0, Math.min(300, s.length())));
-                                                }
+                for (Method m : cl.getDeclaredMethods()) {
+                    String name = m.getName();
+                    if (name.contains("processLockEvent") || name.contains("processLockInquiry")) {
+                        try {
+                            final String sig = cn + "." + name;
+                            XposedBridge.hookMethod(m, new XC_MethodHook() {
+                                @Override
+                                protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                                    XposedBridge.log(TAG + ": >> " + sig);
+                                    for (Object arg : p.args) {
+                                        if (arg instanceof String) {
+                                            String s = (String) arg;
+                                            if (s.length() > 0) {
+                                                XposedBridge.log(TAG + ": arg=" + s.substring(0, Math.min(200, s.length())));
                                             }
                                         }
                                     }
-                                });
-                                hookedCount++;
-                                XposedBridge.log(TAG + ": [SCAN] Hooked " + mSig);
-                            } catch (Throwable ignored) {}
-                        }
+                                }
+
+                                @Override
+                                protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                                    Throwable t = p.getThrowable();
+                                    if (t != null) {
+                                        XposedBridge.log(TAG + ": " + sig + " threw: " + t);
+                                        p.setThrowable(null);
+                                    }
+                                }
+                            });
+                            found++;
+                            XposedBridge.log(TAG + ": Hooked " + sig);
+                        } catch (Throwable ignored) {}
                     }
                 }
             }
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + ": Scan error: " + t.getMessage());
         }
-        XposedBridge.log(TAG + ": Scan hooked " + hookedCount + " methods in linker");
+        XposedBridge.log(TAG + ": processLockEvent hooked: " + found);
     }
 
-    private void hookHtmsProcess(XC_LoadPackage.LoadPackageParam lpparam) {
-        XposedBridge.log(TAG + ": === Hooking htms process: " + lpparam.processName + " ===");
-
-        hookSrpClasses(lpparam);
-        hookAllIntegrityClasses(lpparam);
-        hookNativeCallbacks(lpparam);
+    private void hookSysIntegrityJson() {
+        try {
+            XposedBridge.hookMethod(
+                org.json.JSONObject.class.getMethod("toString"),
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                        String s = (String) p.getResult();
+                        if (s != null && s.contains("\"sysIntegrity\":false")) {
+                            p.setResult(s.replace("\"sysIntegrity\":false", "\"sysIntegrity\":true"));
+                            XposedBridge.log(TAG + ": patched sysIntegrity in toString()");
+                        }
+                    }
+                });
+        } catch (Throwable t) {}
     }
 
-    private void hookSrpClasses(XC_LoadPackage.LoadPackageParam lpparam) {
-        String[] srpClasses = {
+    private void hookHtms(XC_LoadPackage.LoadPackageParam lpparam) {
+        XposedBridge.log(TAG + ": === HTMS proc=" + lpparam.processName + " ===");
+
+        hookSystemProperties();
+        hookBuildClass();
+        hookSrpProvider(lpparam);
+        hookAllNativeMethods(lpparam);
+        hookMspModule(lpparam);
+        hookByteOutput(lpparam);
+    }
+
+    private void hookSystemProperties() {
+        try {
+            XposedBridge.hookMethod(
+                android.os.SystemProperties.class.getMethod("get", String.class),
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                        String key = (String) p.args[0];
+                        String val = (String) p.getResult();
+                        if (key == null) return;
+
+                        if (key.contains("verifiedbootstate") || key.contains("flash.locked")) {
+                            if (val == null || !val.equals("green") && !val.equals("1")) {
+                                XposedBridge.log(TAG + ": [PROP] " + key + "=" + val + " -> " + (key.contains("locked") ? "1" : "green"));
+                                p.setResult(key.contains("locked") ? "1" : "green");
+                            }
+                        } else if (key.equals("ro.boot.flash.locked")) {
+                            p.setResult("1");
+                            XposedBridge.log(TAG + ": [PROP] flash.locked -> 1");
+                        } else if (key.equals("ro.boot.verifiedbootstate")) {
+                            p.setResult("green");
+                            XposedBridge.log(TAG + ": [PROP] verifiedbootstate -> green");
+                        } else if (key.equals("ro.debuggable")) {
+                            p.setResult("0");
+                        } else if (key.equals("ro.secure")) {
+                            p.setResult("1");
+                        } else if (key.equals("ro.build.type")) {
+                            if ("userdebug".equals(val) || "eng".equals(val)) {
+                                p.setResult("user");
+                                XposedBridge.log(TAG + ": [PROP] build.type -> user");
+                            }
+                        } else if (key.contains("ro.adb.secure")) {
+                            p.setResult("1");
+                        } else if (key.contains("selinux") || key.contains("ro.boot.selinux")) {
+                            p.setResult("1");
+                            XposedBridge.log(TAG + ": [PROP] selinux -> 1");
+                        }
+                    }
+                });
+
+            XposedBridge.hookMethod(
+                android.os.SystemProperties.class.getMethod("get", String.class, String.class),
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                        String key = (String) p.args[0];
+                        if (key == null) return;
+
+                        if (key.equals("ro.boot.flash.locked")) {
+                            p.setResult("1");
+                        } else if (key.equals("ro.boot.verifiedbootstate")) {
+                            p.setResult("green");
+                        } else if (key.equals("ro.debuggable")) {
+                            p.setResult("0");
+                        } else if (key.equals("ro.secure")) {
+                            p.setResult("1");
+                        } else if (key.equals("ro.build.type")) {
+                            String val = (String) p.getResult();
+                            if ("userdebug".equals(val) || "eng".equals(val)) {
+                                p.setResult("user");
+                            }
+                        } else if (key.contains("selinux")) {
+                            p.setResult("1");
+                        }
+                    }
+                });
+            XposedBridge.log(TAG + ": Hooked SystemProperties");
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": SystemProperties hook failed: " + t);
+        }
+    }
+
+    private void hookBuildClass() {
+        try {
+            XposedHelpers.setStaticObjectField(android.os.Build.class, "TYPE", "user");
+            XposedHelpers.setStaticObjectField(android.os.Build.class, "TAGS", "release-keys");
+            XposedBridge.log(TAG + ": Patched Build fields");
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": Build patch failed: " + t);
+        }
+    }
+
+    private void hookSrpProvider(XC_LoadPackage.LoadPackageParam lpparam) {
+        String[] classes = {
             "com.oplus.omes.srp.SrpProviderModule",
             "com.oplus.omes.srp.SrpManager",
-            "com.oplus.omes.srp.StdSrp",
-            "com.oplus.omes.srp.SrpClient",
-            "com.oplus.omes.srp.CryptoUtils",
-            "com.oplus.omes.srp.AttestationUtils",
             "com.oplus.omes.msp.MspProviderModule",
-            "com.oplus.msp.core.IntegrityChecker",
+            "com.oplus.msp.core.IntegrityChecker"
+        };
+
+        int count = 0;
+        for (String cn : classes) {
+            Class<?> cl = findClass(cn, lpparam.classLoader);
+            if (cl == null) continue;
+
+            for (Method m : cl.getDeclaredMethods()) {
+                try {
+                    final String sig = cn + "." + m.getName();
+                    XposedBridge.hookMethod(m, new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                            Object r = p.getResult();
+                            if (r instanceof Boolean && !(Boolean) r) {
+                                p.setResult(true);
+                                XposedBridge.log(TAG + ": [SRP] " + sig + " false->true");
+                            } else if (r instanceof Integer && (Integer) r != 0) {
+                                p.setResult(0);
+                                XposedBridge.log(TAG + ": [SRP] " + sig + " " + r + "->0");
+                            }
+                        }
+                    });
+                    count++;
+                } catch (Throwable ignored) {}
+            }
+        }
+        XposedBridge.log(TAG + ": SRP hooked " + count + " methods");
+    }
+
+    private void hookAllNativeMethods(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            Class<?>[] loadedClasses = getAllLoadedClasses(lpparam.classLoader);
+            int count = 0;
+
+            for (Class<?> cl : loadedClasses) {
+                String cn = cl.getName();
+                if (!cn.contains("srp") && !cn.contains("Srp") &&
+                    !cn.contains("msp") &&                     !cn.contains("Msp") &&
+                    !cn.contains("integrity") && !cn.contains("Integrity") &&
+                    !cn.contains("stdsrp")) continue;
+
+                for (Method m : cl.getDeclaredMethods()) {
+                    if (java.lang.reflect.Modifier.isNative(m.getModifiers())) {
+                        try {
+                            final String sig = cn + "." + m.getName() + " [NATIVE]";
+                            XposedBridge.hookMethod(m, new XC_MethodHook() {
+                                @Override
+                                protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                                    XposedBridge.log(TAG + ": [NATIVE>>] " + sig);
+                                }
+                                @Override
+                                protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                                    Object r = p.getResult();
+                                    XposedBridge.log(TAG + ": [NATIVE<<] " + sig + " result=" +
+                                        (r == null ? "null" : r.getClass().getSimpleName() + "(" + r.toString().substring(0, Math.min(100, r.toString().length())) + ")"));
+                                    if (r instanceof Boolean && !(Boolean) r) {
+                                        p.setResult(true);
+                                    } else if (r instanceof Integer && (Integer) r != 0) {
+                                        p.setResult(0);
+                                    }
+                                }
+                            });
+                            count++;
+                        } catch (Throwable ignored) {}
+                    }
+                }
+            }
+            XposedBridge.log(TAG + ": Native method hooked: " + count);
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + ": Native hook error: " + t);
+        }
+    }
+
+    private void hookMspModule(XC_LoadPackage.LoadPackageParam lpparam) {
+        String[] classes = {
             "com.heytap.htms.integrity.IntegrityService",
             "com.heytap.htms.integrity.IntegrityChecker",
             "com.heytap.htms.sysintegrity.IntegrityProvider",
             "com.oplus.omes.srp.provider.IntegrityProvider",
-            "com.oplus.omes.srp.provider.DeviceIntegrityProvider"
+            "com.oplus.omes.srp.provider.DeviceIntegrityProvider",
+            "com.oplus.omes.srp.AttestationUtils",
+            "com.oplus.omes.srp.CryptoUtils",
+            "com.oplus.omes.srp.StdSrp",
+            "com.oplus.omes.srp.SrpClient"
         };
 
-        int hookedCount = 0;
-        for (String className : srpClasses) {
-            Class<?> clazz = findClass(className, lpparam.classLoader);
-            if (clazz == null) continue;
+        int count = 0;
+        for (String cn : classes) {
+            Class<?> cl = findClass(cn, lpparam.classLoader);
+            if (cl == null) continue;
 
-            for (Method method : clazz.getDeclaredMethods()) {
+            for (Method m : cl.getDeclaredMethods()) {
                 try {
-                    final String mFullName = className + "." + method.getName();
-                    XposedBridge.hookMethod(method, new XC_MethodHook() {
+                    final String sig = cn + "." + m.getName();
+                    XposedBridge.hookMethod(m, new XC_MethodHook() {
                         @Override
-                        protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                            Object result = param.getResult();
-                            if (result instanceof Boolean) {
-                                boolean val = (Boolean) result;
-                                if (!val) {
-                                    param.setResult(true);
-                                    XposedBridge.log(TAG + ": [SRP] " + mFullName + " false->true");
-                                }
-                            } else if (result instanceof Integer) {
-                                int val = (Integer) result;
-                                if (val != 0) {
-                                    param.setResult(0);
-                                    XposedBridge.log(TAG + ": [SRP] " + mFullName + " " + val + "->0");
-                                }
+                        protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                            Object r = p.getResult();
+                            if (r instanceof Boolean && !(Boolean) r) {
+                                p.setResult(true);
+                                XposedBridge.log(TAG + ": [MSP] " + sig + " false->true");
+                            } else if (r instanceof Integer && (Integer) r != 0) {
+                                p.setResult(0);
+                                XposedBridge.log(TAG + ": [MSP] " + sig + " " + r + "->0");
                             }
                         }
                     });
-                    hookedCount++;
+                    count++;
                 } catch (Throwable ignored) {}
             }
         }
-        XposedBridge.log(TAG + ": SRP hooked " + hookedCount + " methods");
+        XposedBridge.log(TAG + ": MSP hooked " + count + " methods");
     }
 
-    private void hookAllIntegrityClasses(XC_LoadPackage.LoadPackageParam lpparam) {
-        int hookedCount = 0;
+    private void hookByteOutput(XC_LoadPackage.LoadPackageParam lpparam) {
         try {
-            Class<?> atClass = Class.forName("android.app.ActivityThread");
-            Object at = XposedHelpers.callStaticMethod(atClass, "currentActivityThread");
-            if (at == null) return;
+            Class<?> cl = findClass("com.oplus.omes.srp.SrpProviderModule", lpparam.classLoader);
+            if (cl == null) return;
 
-            java.util.List<String> targetClasses = new java.util.ArrayList<>();
-            String[] srpPrefixes = {
-                "com.oplus.omes.srp", "com.oplus.omes.msp", "com.oplus.msp",
-                "com.heytap.htms", "com.heytap.msp"
-            };
-            String[] srpSuffixes = {
-                "integrity", "Integrity", "attest", "Attest", "verify", "Verify",
-                "check", "Check", "srp", "Srp", "SRP", "msp", "Msp", "MSP",
-                "provider", "Provider", "token", "Token", "device", "Device"
-            };
-
-            for (String prefix : srpPrefixes) {
-                for (String suffix : srpSuffixes) {
-                    String base = prefix + "." + suffix;
-                    for (int i = 0; i < 10; i++) {
-                        String className = base;
-                        if (i > 0) className = base + "$" + (char)('a' + i - 1);
-                        Class<?> clazz = findClass(className, lpparam.classLoader);
-                        if (clazz != null) targetClasses.add(className);
-                    }
-                }
-            }
-
-            for (String className : targetClasses) {
-                Class<?> clazz = findClass(className, lpparam.classLoader);
-                if (clazz == null) continue;
-
-                for (Method method : clazz.getDeclaredMethods()) {
-                    try {
-                        final String mFullName = className + "." + method.getName();
-                        XposedBridge.hookMethod(method, new XC_MethodHook() {
-                            @Override
-                            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                                Object result = param.getResult();
-                                if (result instanceof Boolean && !(Boolean) result) {
-                                    param.setResult(true);
-                                    XposedBridge.log(TAG + ": [INT] " + mFullName + " false->true");
-                                } else if (result instanceof Integer && (Integer) result != 0) {
-                                    param.setResult(0);
-                                    XposedBridge.log(TAG + ": [INT] " + mFullName + " " + result + "->0");
-                                }
-                            }
-                        });
-                        hookedCount++;
-                    } catch (Throwable ignored) {}
-                }
-            }
-        } catch (Throwable t) {
-            XposedBridge.log(TAG + ": Integrity scan error: " + t.getMessage());
-        }
-        XposedBridge.log(TAG + ": Integrity scan hooked " + hookedCount + " methods");
-    }
-
-    private void hookNativeCallbacks(XC_LoadPackage.LoadPackageParam lpparam) {
-        try {
-            Class<?> sysIntegrityClass = findClass("com.oplus.omes.srp.SrpProviderModule", lpparam.classLoader);
-            if (sysIntegrityClass == null) return;
-
-            for (Method method : sysIntegrityClass.getDeclaredMethods()) {
-                Class<?>[] paramTypes = method.getParameterTypes();
-                for (Class<?> pt : paramTypes) {
+            for (Method m : cl.getDeclaredMethods()) {
+                for (Class<?> pt : m.getParameterTypes()) {
                     if (pt == byte[].class) {
-                        final String mFullName = "SrpProviderModule." + method.getName();
-                        XposedBridge.hookMethod(method, new XC_MethodHook() {
-                            @Override
-                            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                                for (int i = 0; i < param.args.length; i++) {
-                                    if (param.args[i] instanceof byte[]) {
-                                        byte[] data = (byte[]) param.args[i];
-                                        String str = new String(data, "UTF-8");
-                                        if (str.contains("sysIntegrity")) {
-                                            XposedBridge.log(TAG + ": [NATIVE] " + mFullName + " byteArg contains sysIntegrity, len=" + data.length);
+                        try {
+                            final String sig = "SrpProviderModule." + m.getName();
+                            XposedBridge.hookMethod(m, new XC_MethodHook() {
+                                @Override
+                                protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                                    for (Object arg : p.args) {
+                                        if (arg instanceof byte[]) {
+                                            byte[] data = (byte[]) arg;
+                                            XposedBridge.log(TAG + ": [BYTE] " + sig + " input len=" + data.length);
+                                            for (int i = 0; i < data.length - 20; i++) {
+                                                if (data[i] == 's' && data[i+1] == 'y' && data[i+2] == 's' &&
+                                                    data[i+3] == 'I' && data[i+4] == 'n' && data[i+5] == 't') {
+                                                    XposedBridge.log(TAG + ": [BYTE] Found 'sysInt' at offset " + i);
+                                                    for (int j = i; j < Math.min(i + 30, data.length); j++) {
+                                                        XposedBridge.log(TAG + ": [BYTE] offset " + j + " = " + (char)(data[j] & 0xFF) + " (0x" + Integer.toHexString(data[j] & 0xFF) + ")");
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                            }
-                        });
-                        XposedBridge.log(TAG + ": [NATIVE] Hooked " + mFullName);
-                        break;
+
+                                @Override
+                                protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                                    for (Object arg : p.args) {
+                                        if (arg instanceof byte[]) {
+                                            byte[] data = (byte[]) arg;
+                                            String str = new String(data, "UTF-8").toLowerCase();
+                                            if (str.contains("sysintegrity") || str.contains("integrity")) {
+                                                XposedBridge.log(TAG + ": [BYTE] " + sig + " output contains integrity, len=" + data.length);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                            break;
+                        } catch (Throwable ignored) {}
                     }
                 }
             }
         } catch (Throwable t) {
-            XposedBridge.log(TAG + ": Native callback hook error: " + t.getMessage());
+            XposedBridge.log(TAG + ": Byte hook error: " + t);
         }
     }
 
-    private void hookHealthApp(XC_LoadPackage.LoadPackageParam lpparam) {
-        XposedBridge.log(TAG + ": === Hooking com.heytap.health ===");
-
-        String[] classNames = {
+    private void hookHealth(XC_LoadPackage.LoadPackageParam lpparam) {
+        XposedBridge.log(TAG + ": === HEALTH ===");
+        String[] classes = {
             "com.heytap.health.unlock.WatchUnlockManager",
             "com.heytap.health.watch.unlock.WatchUnlockHelper",
             "com.heytap.health.smartlock.SmartLockManager"
         };
 
-        for (String className : classNames) {
-            Class<?> clazz = findClass(className, lpparam.classLoader);
-            if (clazz == null) continue;
-
-            for (Method method : clazz.getDeclaredMethods()) {
-                String name = method.getName().toLowerCase();
+        for (String cn : classes) {
+            Class<?> cl = findClass(cn, lpparam.classLoader);
+            if (cl == null) continue;
+            for (Method m : cl.getDeclaredMethods()) {
+                String name = m.getName().toLowerCase();
                 if (name.contains("unlock") || name.contains("smartlock") || name.contains("trust")) {
                     try {
-                        final String mFullName = className + "." + method.getName();
-                        XposedBridge.hookMethod(method, new XC_MethodHook() {
+                        final String sig = cn + "." + m.getName();
+                        XposedBridge.hookMethod(m, new XC_MethodHook() {
                             @Override
-                            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                                Object result = param.getResult();
-                                if (result instanceof Boolean && !(Boolean) result) {
-                                    param.setResult(true);
-                                    XposedBridge.log(TAG + ": [HEALTH] " + mFullName + " false->true");
+                            protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                                if (p.getResult() instanceof Boolean && !(Boolean) p.getResult()) {
+                                    p.setResult(true);
+                                    XposedBridge.log(TAG + ": [HEALTH] " + sig + " false->true");
                                 }
                             }
                         });
-                        XposedBridge.log(TAG + ": Hooked " + mFullName);
                     } catch (Throwable ignored) {}
                 }
             }
         }
     }
 
-    private Class<?> findClass(String className, ClassLoader cl) {
+    private Class<?>[] getAllLoadedClasses(ClassLoader cl) {
         try {
-            return XposedHelpers.findClass(className, cl);
+            Object at = XposedHelpers.callStaticMethod(
+                Class.forName("android.app.ActivityThread"), "currentActivityThread");
+            if (at == null) return new Class<?>[0];
+            Object pkgs = XposedHelpers.getObjectField(at, "mPackages");
+            if (pkgs == null) return new Class<?>[0];
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, Object> map = (java.util.Map<String, Object>) pkgs;
+            java.util.List<Class<?>> result = new java.util.ArrayList<>();
+            for (Object val : map.values()) {
+                Object cls = XposedHelpers.getObjectField(val, "mAppComponentFactory");
+                if (cls != null) {
+                    result.add(cls.getClass());
+                }
+            }
+            return result.toArray(new Class<?>[0]);
         } catch (Throwable t) {
-            return null;
+            return new Class<?>[0];
         }
     }
 
-    private String getParamTypes(Method method) {
-        StringBuilder sb = new StringBuilder();
-        Class<?>[] types = method.getParameterTypes();
-        for (int i = 0; i < types.length; i++) {
-            if (i > 0) sb.append(",");
-            sb.append(types[i].getSimpleName());
+    private Class<?> findClass(String cn, ClassLoader cl) {
+        try {
+            return XposedHelpers.findClass(cn, cl);
+        } catch (Throwable t) {
+            return null;
         }
-        return sb.toString();
     }
 }
