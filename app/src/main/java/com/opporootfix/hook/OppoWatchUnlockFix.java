@@ -205,4 +205,16 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
     private void hookHealth(XC_LoadPackage.LoadPackageParam lpparam) {
         XposedBridge.log(TAG + ": === HEALTH ===");
     }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        int limit = Math.min(bytes.length, 64);
+        for (int i = 0; i < limit; i++) {
+            sb.append(String.format("%02x", bytes[i] & 0xFF));
+            if ((i + 1) % 16 == 0) sb.append("\n  ");
+            else sb.append(" ");
+        }
+        if (bytes.length > 64) sb.append("...(").append(bytes.length).append(" total)");
+        return sb.toString();
+    }
 }
