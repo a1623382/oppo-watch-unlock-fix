@@ -38,59 +38,55 @@ public class OppoWatchUnlockFix implements IXposedHookLoadPackage {
         try {
             String cn = "com.oplus.linker.unlock.connect.ConnectionSocket";
             Class<?> cl = Class.forName(cn, false, lpparam.classLoader);
-            XposedBridge.log(TAG + ": [RESP] Found ConnectionSocket, hooking all methods");
+            XposedBridge.log(TAG + ": [RESP] Found ConnectionSocket");
 
             for (Method m : cl.getDeclaredMethods()) {
                 try {
-                    final String sig = cn + "." + m.getName();
-                    XposedBridge.hookMethod(m, new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
-                            StringBuilder args = new StringBuilder();
-                            for (Object arg : p.args) {
-                                if (arg == null) args.append("null");
-                                else if (arg instanceof byte[]) args.append("byte[").append(((byte[])arg).length).append("]");
-                                else if (arg instanceof int[]) args.append("int[").append(((int[])arg).length).append("]");
-                                else if (arg instanceof String) args.append("\"").append(((String)arg).substring(0, Math.min(50, ((String)arg).length()))).append("\"");
-                                else args.append(arg.getClass().getSimpleName());
-                                args.append(", ");
-                            }
-                            XposedBridge.log(TAG + ": [>>] " + sig + "(" + args + ")");
-                        }
+                    String name = m.getName();
+                    final String sig = cn + "." + name;
 
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam p) throws Throwable {
-                            Throwable t = p.getThrowable();
-                            if (t != null) {
-                                XposedBridge.log(TAG + ": [THREW] " + sig + ": " + t);
-                                p.setThrowable(null);
-                            }
-
-                            Object r = p.getResult();
-                            if (r != null) {
-                                if (r instanceof byte[]) {
-                                    byte[] data = (byte[]) r;
-                                    XposedBridge.log(TAG + ": [<<] " + sig + " = byte[" + data.length + "]");
-                                } else {
-                                    String rStr = r.toString();
-                                    XposedBridge.log(TAG + ": [<<] " + sig + " = " + r.getClass().getSimpleName() +
-                                        "(" + rStr.substring(0, Math.min(100, rStr.length())) + ")");
+                    if (name.contains("processFailLockEvent")) {
+                        XposedBridge.hookMethod(m, new XC_MethodHook() {
+                            @Override
+                            protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                                for (int i = 0; i < p.args.length; i++) {
+                                    if (p.args[i] instanceof Integer) {
+                                        int errorCode = (Integer) p.args[i];
+                                        XposedBridge.log(TAG + ": [FAIL] " + sig + " errorCode=" + errorCode);
+                                        if (errorCode != 0) {
+                                            p.args[i] = 0;
+                                            XposedBridge.log(TAG + ": [FAIL-PATCH] errorCode " + errorCode + " -> 0");
+                                        }
+                                    }
                                 }
                             }
-
-                            for (Field f : p.thisObject.getClass().getDeclaredFields()) {
-                                try {
-                                    f.setAccessible(true);
-                                    Object val = f.get(p.thisObject);
-                                    if (val instanceof Integer && (Integer) val != 0) {
-                                        XposedBridge.log(TAG + ": [FIELD] " + f.getName() + " = " + val);
-                                    } else if (val instanceof Boolean) {
-                                        XposedBridge.log(TAG + ": [FIELD] " + f.getName() + " = " + val);
-                                    }
-                                } catch (Throwable ignored) {}
+                        });
+                        XposedBridge.log(TAG + ": [RESP] Hooked " + sig + " (will override error code)");
+                    } else if (name.contains("processSuccess") || name.contains("processUnlock")) {
+                        XposedBridge.hookMethod(m, new XC_MethodHook() {
+                            @Override
+                            protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                                XposedBridge.log(TAG + ": [SUCCESS] " + sig + " called!");
                             }
-                        }
-                    });
+                        });
+                        XposedBridge.log(TAG + ": [RESP] Hooked " + sig + " (success path)");
+                    } else {
+                        XposedBridge.hookMethod(m, new XC_MethodHook() {
+                            @Override
+                            protected void beforeHookedMethod(MethodHookParam p) throws Throwable {
+                                StringBuilder args = new StringBuilder();
+                                for (Object arg : p.args) {
+                                    if (arg == null) args.append("null");
+                                    else if (arg instanceof byte[]) args.append("byte[").append(((byte[])arg).length).append("]");
+                                    else if (arg instanceof int[]) args.append("int[").append(((int[])arg).length).append("]");
+                                    else if (arg instanceof String) args.append("\"").append(((String)arg).substring(0, Math.min(50, ((String)arg).length()))).append("\"");
+                                    else args.append(arg.getClass().getSimpleName());
+                                    args.append(", ");
+                                }
+                                XposedBridge.log(TAG + ": [>>] " + sig + "(" + args + ")");
+                            }
+                        });
+                    }
                 } catch (Throwable ignored) {}
             }
         } catch (Throwable t) {
